@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>The Binding of dodo</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="wrap">
+  <canvas id="game" width="960" height="576"></canvas>
+  <div id="touch-ui" class="hidden">
+    <div id="stick-zone"><div id="stick-base"><div id="stick-knob"></div></div></div>
+    <div id="fire-pad">
+      <button class="fire-btn" data-dir="up">▲</button>
+      <button class="fire-btn" data-dir="left">◀</button>
+      <button class="fire-btn" data-dir="right">▶</button>
+      <button class="fire-btn" data-dir="down">▼</button>
+    </div>
+  </div>
+</div>
+<script src="js/utils.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/sprites.js"></script>
+<script src="js/items.js"></script>
+<script src="js/dungeon.js"></script>
+<script src="js/entities.js"></script>
+<script src="js/bosses.js"></script>
+<script src="js/game.js"></script>
+</body>
+</html>

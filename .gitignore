@@ -1,0 +1,4 @@
+.DS_Store
+.playtest/
+.playwright-cli/
+.popo.json
