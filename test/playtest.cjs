@@ -622,12 +622,98 @@ async function runSuite(page, context, consoleErrors) {
 
     // --- Brimstone × multishot coexist: fan of beams ---
     // (charge gating lives in updatePlay; a completed charge calls fireBrimstone)
+    // pin every translated tear mod so the beam count is deterministic
+    const savedMods = {};
+    for (const k of ['bounce', 'tearAura', 'explosive', 'split', 'homing', 'crit',
+      'poison', 'slowOnHit', 'piercing', 'spectral', 'damage', 'tearSize',
+      'distGrow', 'distShrink', 'range', 'shotSpeed', 'ipecac']) savedMods[k] = p[k];
+    Object.assign(p, { bounce: 0, tearAura: 0, explosive: 0, split: 0, homing: false,
+      crit: 0, poison: 0, slowOnHit: 0, piercing: false, spectral: false,
+      damage: 3.5, tearSize: 6.5, distGrow: 0, distShrink: 0, range: 380, shotSpeed: 400, ipecac: false });
     G.enemies = []; G.beams = [];
     p.laser = true; p.multishot = 3; p.fireCd = 0;
     fireBrimstone(G, 1, 0);
     out.laserMultishot = G.beams.length === 3 &&
       new Set(G.beams.map(b => b.angle.toFixed(3))).size === 3;
+    p.multishot = 1;
+
+    // --- laser × tear items: the three-layer translation ---
+    // layer 1: poison + slow ride the beam onto every enemy it crosses,
+    //          and distShrink grades damage along the beam
+    p.poison = 3; p.slowOnHit = 0.5; p.distShrink = 1;
+    const lzNear = makeEnemy('gaper', p.x + 120, p.y - 8, 1);
+    const lzFar = makeEnemy('gaper', p.x + 320, p.y - 8, 1);
+    lzNear.spawnT = 0; lzFar.spawnT = 0;
+    lzNear.hp = 9999; lzFar.hp = 9999;
+    G.enemies = [lzNear, lzFar]; G.beams = [];
+    fireBrimstone(G, 1, 0);
+    out.laserPoisonSlow = lzNear.poison > 0 && lzNear.slowT > 0 && lzFar.poison > 0;
+    out.laserDistScale = (9999 - lzNear.hp) > (9999 - lzFar.hp);
+    p.poison = 0; p.slowOnHit = 0; p.distShrink = 0;
+
+    // layer 1: tearAura leaves a ticking burn trail behind the beam
+    G.enemies = []; G.beams = [];
+    p.tearAura = 2;
+    fireBrimstone(G, 1, 0);
+    out.laserTrail = G.beams.some(b => b.trail) && G.beams.some(b => !b.trail);
+    const burn = makeEnemy('gaper', p.x + 150, p.y - 8, 1);
+    burn.spawnT = 0; burn.hp = 9999;
+    G.enemies = [burn];
+    for (let i = 0; i < 20; i++) updateBeams(G, 1 / 60);
+    out.laserTrailTicks = burn.hp < 9999;
+    p.tearAura = 0;
+
+    // layer 2: bounce reflects the beam off the wall into extra segments
+    G.enemies = []; G.beams = [];
+    p.bounce = 2; p.fireCd = 0;
+    fireBrimstone(G, 1, 0);
+    out.laserBounce = G.beams.filter(b => !b.trail).length > 1;
+    p.bounce = 0;
+
+    // layer 2: homing bends the aim toward a nearby enemy
+    const bait = makeEnemy('gaper', p.x + 200, p.y + 60, 1);
+    bait.spawnT = 0;
+    G.enemies = [bait]; G.beams = [];
+    p.homing = true;
+    fireBrimstone(G, 1, 0);
+    const mainBeam = G.beams.find(b => !b.trail);
+    out.laserHoming = !!mainBeam && mainBeam.angle > 0.05;
+    p.homing = false;
+
+    // layer 2: split bursts the beam end into two tears
+    G.enemies = []; G.beams = []; G.tears = [];
+    p.split = 1;
+    fireBrimstone(G, 1, 0);
+    out.laserSplit = G.tears.length === 2;
+    p.split = 0; G.tears = [];
+
+    // layer 2: explosive detonates at the beam's end point (right wall)
+    const offline = makeEnemy('gaper', FLOOR_X + FLOOR_W - 20, p.y - 8 + 60, 1);
+    offline.spawnT = 0; offline.hp = 9999;
+    G.enemies = [offline]; G.beams = [];
+    p.explosive = 80;
+    fireBrimstone(G, 1, 0);
+    out.laserBlast = offline.hp < 9999;
+    p.explosive = 0;
+
+    // layer 2: shotSpeed buys charge speed on a hitscan weapon
+    out.laserChargeScales =
+      laserChargeTime({ shotSpeed: 800 }) < laserChargeTime({ shotSpeed: 400 }) &&
+      laserChargeTime({ shotSpeed: 400 }) === LASER_CHARGE_TIME;
+
+    // layer 3: redundant piercing/spectral fold into beam damage
+    G.enemies = []; G.beams = [];
+    fireBrimstone(G, 1, 0);
+    const plainDmg = G.beams.find(b => !b.trail).dmg;
+    p.piercing = true; p.spectral = true;
+    G.beams = [];
+    fireBrimstone(G, 1, 0);
+    const foldedDmg = G.beams.find(b => !b.trail).dmg;
+    out.laserInherentPayout = foldedDmg > plainDmg * 1.2;
+
+    Object.assign(p, savedMods);
     p.laser = saved.laser; p.multishot = saved.multishot;
+    G.beams = []; G.tears = [];
 
     // --- sweeping room lasers (boss) + purple palette ---
     G.lasers = [];
@@ -808,6 +894,16 @@ async function runSuite(page, context, consoleErrors) {
   ok('命中冻结 ~2 帧只挂在被打的敌人身上', mech.hitstopOnEnemy === true);
   ok('冻结期间该敌人静止，其他敌人照常行动', mech.hitstopLocal === true);
   ok('激光与多弹道并存（3 连发 = 3 束扇形激光）', mech.laserMultishot === true);
+  ok('激光继承中毒/减速（第一层直通）', mech.laserPoisonSlow === true);
+  ok('激光沿光束做远近增伤衰减（第一层）', mech.laserDistScale === true);
+  ok('灼烧光环化为光束灼烧尾迹（第一层）', mech.laserTrail === true);
+  ok('灼烧尾迹会持续跳伤害', mech.laserTrailTicks === true);
+  ok('弹跳化为光束弹墙反射（第二层）', mech.laserBounce === true);
+  ok('追踪化为光束瞄准偏折（第二层）', mech.laserHoming === true);
+  ok('落地分裂化为光束末端分裂两颗眼泪（第二层）', mech.laserSplit === true);
+  ok('爆炸化为光束末端爆炸（第二层）', mech.laserBlast === true);
+  ok('弹速转化为激光蓄力速度（第二层）', mech.laserChargeScales === true);
+  ok('穿透/幽灵冗余属性兜底为光束增伤（第三层）', mech.laserInherentPayout === true);
   ok('Boss 全屏发散持续激光 >= 4 束', mech.sweepCount >= 4, 'count=' + mech.sweepCount);
   ok('持续激光先有紫色预警线', mech.sweepWarns === true);
   ok('持续激光整体旋转扫场', mech.sweepSpins === true);
