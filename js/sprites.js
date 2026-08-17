@@ -748,6 +748,10 @@ function drawDoor(g, side, state, kind) {
   let frame = '#8a7454', frameDark = '#5d4c33';
   if (kind === 'boss') { frame = '#7d1f16'; frameDark = '#4c110b'; }
   if (kind === 'treasure') { frame = '#c9a437'; frameDark = '#8a6d1d'; }
+  if (kind === 'shop') { frame = '#b0783c'; frameDark = '#7a4f22'; }
+  if (kind === 'curse') { frame = '#5a1220'; frameDark = '#380a12'; }
+  if (kind === 'challenge') { frame = '#5f6673'; frameDark = '#3c414a'; }
+  if (kind === 'secret') { frame = '#4a4238'; frameDark = '#2e2921'; }
 
   // open door: warm light from the next room spills onto this floor
   if (state === 'open') {
@@ -806,7 +810,11 @@ function drawDoor(g, side, state, kind) {
 
   if (state === 'closed') {
     // double door panels
-    const panel = kind === 'boss' ? '#5d1810' : (kind === 'treasure' ? '#7a5a24' : '#77552f');
+    const panel = kind === 'boss' ? '#5d1810'
+      : (kind === 'treasure' ? '#7a5a24'
+        : (kind === 'shop' ? '#6e5426'
+          : (kind === 'curse' ? '#3d1016'
+            : (kind === 'challenge' ? '#4a5058' : '#77552f'))));
     g.fillStyle = panel;
     g.beginPath();
     g.moveTo(-30, 1);
@@ -854,6 +862,32 @@ function drawDoor(g, side, state, kind) {
       g.lineWidth = 2;
       traceStar(g, -14, -22, 8); g.fill(); g.stroke();
       traceStar(g, 14, -22, 8); g.fill(); g.stroke();
+    } else if (kind === 'shop') {
+      // one gold coin per panel
+      g.strokeStyle = PAL.outline;
+      g.lineWidth = 2;
+      for (const sx of [-14, 14]) {
+        g.fillStyle = '#e7b93c';
+        g.beginPath(); g.arc(sx, -22, 7.5, 0, TAU); g.fill(); g.stroke();
+        g.fillStyle = '#9c7418';
+        g.font = 'bold 10px Trebuchet MS';
+        g.textAlign = 'center'; g.textBaseline = 'middle';
+        g.fillText('¢', sx, -21);
+      }
+    } else if (kind === 'challenge') {
+      // crossed swords painted across the panels
+      g.strokeStyle = '#d8d2c4';
+      g.lineWidth = 3;
+      g.beginPath();
+      g.moveTo(-12, -36); g.lineTo(10, -12);
+      g.moveTo(12, -36); g.lineTo(-10, -12);
+      g.stroke();
+      g.strokeStyle = '#8a7454';
+      g.lineWidth = 3.5;
+      g.beginPath();
+      g.moveTo(-15, -18); g.lineTo(-7, -18);
+      g.moveTo(7, -18); g.lineTo(15, -18);
+      g.stroke();
     } else {
       // iron studs
       g.fillStyle = '#1d150c';
@@ -918,6 +952,19 @@ function drawDoor(g, side, state, kind) {
     g.beginPath();
     g.moveTo(-10, -46); g.lineTo(-10, -54); g.lineTo(-5, -49); g.lineTo(0, -56); g.lineTo(5, -49); g.lineTo(10, -54); g.lineTo(10, -46);
     g.closePath(); g.fill(); g.stroke();
+  } else if (kind === 'curse') {
+    // spikes in the doorway — crossing them costs half a heart either way
+    g.fillStyle = '#b8b2a4';
+    g.strokeStyle = PAL.outline;
+    g.lineWidth = 2;
+    for (const sx of [-24, -8, 8, 24]) {
+      g.beginPath();
+      g.moveTo(sx - 6, 4);
+      g.lineTo(sx, -14);
+      g.lineTo(sx + 6, 4);
+      g.closePath();
+      g.fill(); g.stroke();
+    }
   }
   g.restore();
 }
@@ -1659,7 +1706,65 @@ function drawPickup(g, p) {
     g.fillStyle = '#e7b93c';
     g.beginPath(); g.rect(-4, -8, 8, 8); g.fill(); g.stroke();
     g.restore();
+  } else if (p.kind === 'bomb') {
+    g.save();
+    g.translate(p.x, p.y);
+    g.fillStyle = '#232019';
+    g.strokeStyle = PAL.outline;
+    g.lineWidth = 3;
+    g.beginPath(); g.arc(0, 2, 10, 0, TAU); g.fill(); g.stroke();
+    g.fillStyle = 'rgba(255,255,255,0.18)';
+    g.beginPath(); g.arc(-3.5, -1.5, 3.5, 0, TAU); g.fill();
+    // fuse
+    g.strokeStyle = '#c9a437';
+    g.lineWidth = 2.5;
+    g.beginPath(); g.moveTo(3, -6); g.quadraticCurveTo(8, -13, 4, -16); g.stroke();
+    g.fillStyle = '#e8452f';
+    g.beginPath(); g.arc(4, -16, 2, 0, TAU); g.fill();
+    g.restore();
+  } else if (p.kind === 'battery') {
+    g.save();
+    g.translate(p.x, p.y);
+    g.fillStyle = '#e7c93c';
+    g.strokeStyle = PAL.outline;
+    g.lineWidth = 3;
+    g.beginPath(); g.rect(-6, -8, 12, 18); g.fill(); g.stroke();
+    g.fillStyle = '#9c7418';
+    g.beginPath(); g.rect(-3, -11, 6, 3.5); g.fill(); g.stroke();
+    // lightning mark
+    g.fillStyle = '#17110c';
+    g.beginPath();
+    g.moveTo(1.5, -5); g.lineTo(-2.5, 1); g.lineTo(0, 1); g.lineTo(-1.5, 7); g.lineTo(2.5, 0.5); g.lineTo(0, 0.5);
+    g.closePath(); g.fill();
+    g.restore();
   }
+  g.restore();
+}
+
+// a placed, ticking bomb — flashes faster as the fuse runs out
+function drawLiveBomb(g, b) {
+  const panic = b.t < 0.6;
+  const blink = panic && Math.floor(b.t * 12) % 2 === 0;
+  g.save();
+  g.translate(b.x, b.y);
+  g.fillStyle = 'rgba(0,0,0,0.25)';
+  g.beginPath(); g.ellipse(0, 12, 12, 4.5, 0, 0, TAU); g.fill();
+  const puls = 1 + Math.sin(b.anim * (panic ? 22 : 9)) * 0.05;
+  g.scale(puls, puls);
+  g.fillStyle = blink ? '#a3271b' : '#232019';
+  g.strokeStyle = PAL.outline;
+  g.lineWidth = 3;
+  g.beginPath(); g.arc(0, 0, 12, 0, TAU); g.fill(); g.stroke();
+  g.fillStyle = 'rgba(255,255,255,0.18)';
+  g.beginPath(); g.arc(-4, -4, 4, 0, TAU); g.fill();
+  // fuse burns down with remaining time
+  const k = clamp(b.t / b.maxT, 0, 1);
+  g.strokeStyle = '#c9a437';
+  g.lineWidth = 2.5;
+  g.beginPath(); g.moveTo(4, -9); g.quadraticCurveTo(4 + 6 * k, -15 - 4 * k, 2 + 4 * k, -17 - 3 * k); g.stroke();
+  // spark
+  g.fillStyle = chance(0.5) ? '#f0b23c' : '#e8452f';
+  g.beginPath(); g.arc(2 + 4 * k, -17 - 3 * k, 2.5 + rand(1), 0, TAU); g.fill();
   g.restore();
 }
 
@@ -1687,6 +1792,70 @@ function drawPedestal(g, it) {
     drawItemIcon(g, 0, 0, it.def);
     g.restore();
   }
+  g.restore();
+}
+
+// shop ware: pedestal (or bare heart) plus a price tag underneath.
+// Price goes red the moment the purse can't cover it.
+function drawShopWare(g, w, coins) {
+  if (w.kind === 'item' || w.kind === 'active') {
+    drawPedestal(g, w);
+  } else if (!w.taken) {
+    // consumables (heart / bomb / battery) reuse the floor pickup sprites
+    drawPickup(g, w);
+  }
+  if (w.taken) return;
+  // price tag
+  g.save();
+  const can = coins >= w.price;
+  const ty = w.y + 34;
+  g.fillStyle = '#e7b93c';
+  g.strokeStyle = PAL.outline;
+  g.lineWidth = 2;
+  g.beginPath(); g.arc(w.x - 14, ty, 6.5, 0, TAU); g.fill(); g.stroke();
+  g.fillStyle = '#9c7418';
+  g.font = 'bold 9px Trebuchet MS';
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText('¢', w.x - 14, ty + 1);
+  g.font = 'bold 15px Trebuchet MS';
+  g.textAlign = 'left';
+  g.strokeStyle = 'rgba(12,8,6,0.85)';
+  g.lineWidth = 3;
+  g.strokeText(String(w.price), w.x - 4, ty + 1);
+  g.fillStyle = can ? '#efe6d2' : '#e8452f';
+  g.fillText(String(w.price), w.x - 4, ty + 1);
+  g.restore();
+}
+
+// info card pinned to the object's top-left: name, effect and price.
+// tips = { name, desc, price?, x, y }; wares carry a price, free pickups
+// (hearts/coins/chests) show "拾取" instead.
+function drawItemTooltip(g, t, coins) {
+  const action = t.price != null ? '价格　' + t.price + ' 金币' : '拾取';
+  g.save();
+  g.font = 'bold 16px Trebuchet MS';
+  const wName = g.measureText(t.name).width;
+  g.font = '13px Trebuchet MS';
+  const wDesc = g.measureText(t.desc).width;
+  const wPrice = g.measureText(action).width;
+  const pw = Math.max(wName, wDesc, wPrice) + 28;
+  const ph = 76;
+  // anchor: card sits to the upper-left of the object
+  const px = clamp(t.x - pw - 18, 8, W - pw - 8);
+  const py = clamp(t.y - ph - 26, 8, H - ph - 8);
+  g.fillStyle = 'rgba(12,8,6,0.88)';
+  g.strokeStyle = '#8a7454';
+  g.lineWidth = 2;
+  g.beginPath(); g.rect(px, py, pw, ph); g.fill(); g.stroke();
+  g.textAlign = 'left'; g.textBaseline = 'middle';
+  g.font = 'bold 16px Trebuchet MS';
+  g.fillStyle = '#f4d03f';
+  g.fillText(t.name, px + 14, py + 18);
+  g.font = '13px Trebuchet MS';
+  g.fillStyle = '#d8ccb0';
+  g.fillText(t.desc, px + 14, py + 40);
+  g.fillStyle = t.price != null ? (coins >= t.price ? '#a8d86a' : '#e8452f') : '#a8d86a';
+  g.fillText(action, px + 14, py + 60);
   g.restore();
 }
 
@@ -2254,6 +2423,36 @@ function drawItemIcon(g, x, y, def) {
       g.beginPath();
       g.moveTo(0, -16); g.lineTo(6, -9); g.lineTo(0, -3); g.lineTo(-6, -9);
       g.closePath(); g.fill(); g.stroke();
+      break;
+    case 'compass':
+      g.fillStyle = tint || '#c9c3b2';
+      g.lineWidth = 3;
+      g.beginPath(); g.arc(0, 0, 12, 0, TAU); g.fill(); g.stroke();
+      g.fillStyle = '#efe6d2';
+      g.beginPath(); g.arc(0, 0, 8.5, 0, TAU); g.fill();
+      // needle: red north, dark south
+      g.fillStyle = '#c9231a';
+      g.beginPath(); g.moveTo(0, -7); g.lineTo(-2.6, 0); g.lineTo(2.6, 0); g.closePath(); g.fill();
+      g.fillStyle = '#17110c';
+      g.beginPath(); g.moveTo(0, 7); g.lineTo(-2.6, 0); g.lineTo(2.6, 0); g.closePath(); g.fill();
+      break;
+    case 'map':
+      g.fillStyle = tint || '#e5d9b8';
+      g.lineWidth = 3;
+      g.beginPath();
+      g.moveTo(-11, -9); g.lineTo(11, -12); g.lineTo(12, 10); g.lineTo(-10, 13);
+      g.closePath(); g.fill(); g.stroke();
+      // dashed trail ending at an X
+      g.strokeStyle = '#8a5a2b';
+      g.lineWidth = 2;
+      g.setLineDash([3, 3]);
+      g.beginPath(); g.moveTo(-7, 8); g.quadraticCurveTo(0, 2, 4, -4); g.stroke();
+      g.setLineDash([]);
+      g.strokeStyle = '#c9231a';
+      g.beginPath();
+      g.moveTo(3, -7); g.lineTo(8, -2);
+      g.moveTo(8, -7); g.lineTo(3, -2);
+      g.stroke();
       break;
     default:
       g.fillStyle = '#ccc';

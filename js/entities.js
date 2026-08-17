@@ -54,6 +54,11 @@ function makePlayer() {
     flap: 0,                       // wing flap phase (advances while flight)
     appearance: { headColor: '#f7f3e9', eyeColor: '#17110c', hat: null, big: false, tearColor: null, aura: null },
     coins: 0,
+    bombs: 3,                      // consumable bombs, placed with E
+    active: null,                  // spacebar item: { def, charge } (charge in bars)
+    compass: false,                // reveals special rooms on the map
+    treasureMap: false,            // reveals the whole floor layout
+    blueMap: false,                // reveals secret rooms
     itemsTaken: [],
   };
 }
@@ -567,6 +572,15 @@ function killEnemy(G, e) {
   if (e.type === 'boomfly') explodeAt(G, e.x, e.y, 72, 10, true);
   spawnBlood(G, e.x, e.y, e.isBoss ? 40 : 14);
   G.room.stains.push({ x: e.x, y: e.y, r: e.isBoss ? 40 : 16, seed: randi(1, 1e9) });
+  // mini-boss: a proper reward, but no trapdoor — the floor boss still awaits
+  if (e.isBoss && e.miniboss) {
+    G.shake = 14;
+    SFX.bossDie();
+    spawnItemPedestal(G.room, e.x, e.y);
+    G.room.pickups.push(makePickup(chance(0.5) ? 'bomb' : 'battery', e.x - 60, e.y));
+    resolvePedestals(G.room, G.player);
+    return;
+  }
   if (e.isBoss) { G.shake = 18; SFX.bossDie(); onBossKilled(G, e); return; }
   SFX.kill();
   const p = G.player;
@@ -578,7 +592,9 @@ function killEnemy(G, e) {
   const roll = Math.max(0, Math.random() - p.luck * 0.012);
   if (roll < 0.10) G.room.pickups.push(makePickup('halfheart', e.x, e.y));
   else if (roll < 0.22) G.room.pickups.push(makePickup('coin', e.x, e.y));
-  else if (roll < 0.27) spawnItemPedestal(G.room, e.x, e.y);
+  else if (roll < 0.26) G.room.pickups.push(makePickup('bomb', e.x, e.y));
+  else if (roll < 0.29) G.room.pickups.push(makePickup('battery', e.x, e.y));
+  else if (roll < 0.335) spawnItemPedestal(G.room, e.x, e.y);
 }
 
 function makePickup(kind, x, y) {

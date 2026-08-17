@@ -26,6 +26,8 @@ const G = {
   orbits: [],
   familiars: [],
   particles: [],
+  liveBombs: [],          // placed bombs ticking down in the current room
+  mapOverlay: false,      // hold Tab: full floor map
   shake: 0,
   dev: false,             // developer mode: item stepping + immunity
   floorNum: 1,
@@ -43,11 +45,14 @@ const FIRE_DIRS = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], Arr
 const touch = { moveX: 0, moveY: 0, fire: null };
 
 window.addEventListener('keydown', e => {
+  // suppress browser defaults before the repeat early-return: holding Tab
+  // fires auto-repeat keydowns, and any unprevented one moves focus into
+  // the browser UI (URL bar); repeated Space/arrows would scroll the page
+  if (e.code === 'Tab' || e.code === 'Space' || FIRE_DIRS[e.code]) e.preventDefault();
   if (e.repeat) return;
   SFX.unlock();
   keys[e.code] = true;
   if (FIRE_DIRS[e.code]) {
-    e.preventDefault();
     if (!fireStack.includes(e.code)) fireStack.push(e.code);
   }
   if (e.code === 'KeyP' || e.code === 'Escape') {
@@ -61,14 +66,37 @@ window.addEventListener('keydown', e => {
     devStepItem(e.code === 'BracketRight' ? 1 : -1);
     return;
   }
+  if (e.code === 'Tab') {
+    e.preventDefault();
+    if (G.state === 'play' && !G.paused) G.mapOverlay = true;
+    return;
+  }
+  if (e.code === 'KeyE' && G.state === 'play' && !G.paused) {
+    e.preventDefault();
+    placeBomb();
+    return;
+  }
+  if (e.code === 'Space' && G.state === 'play' && !G.paused) {
+    e.preventDefault();
+    useActiveItem();
+    return;
+  }
   if ((e.code === 'Enter' || e.code === 'Space') && G.state !== 'play') confirmScreen();
   else if ((e.code === 'Enter' || e.code === 'Space') && G.paused) setPaused(false);
 });
 window.addEventListener('keyup', e => {
   keys[e.code] = false;
+  if (e.code === 'Tab') { e.preventDefault(); G.mapOverlay = false; }
   const i = fireStack.indexOf(e.code);
   if (i >= 0) fireStack.splice(i, 1);
 });
+// keep keyboard focus anchored on the canvas: even if a focus-moving key
+// ever slipped past preventDefault, the walk starts inside the page instead
+// of jumping straight to the browser UI
+canvas.setAttribute('tabindex', '-1');
+canvas.style.outline = 'none';
+canvas.focus();
+window.addEventListener('pointerdown', () => canvas.focus());
 canvas.addEventListener('pointerdown', () => {
   SFX.unlock();
   if (G.paused) { setPaused(false); return; }
@@ -128,11 +156,82 @@ function releaseInput() {
   for (const k in keys) keys[k] = false;
   fireStack.length = 0;
   touch.moveX = 0; touch.moveY = 0; touch.fire = null;
+  G.mapOverlay = false;
 }
 
 window.addEventListener('blur', () => setPaused(true));
 document.addEventListener('visibilitychange', () => { if (document.hidden) setPaused(true); });
 window.addEventListener('pagehide', () => setPaused(true));
+
+// ---------------- bombs ----------------
+const BOMB_FUSE = 1.6, BOMB_RADIUS = 95, BOMB_DAMAGE = 26;
+
+function placeBomb() {
+  const p = G.player;
+  if (p.bombs <= 0) {
+    G.toast = { title: '没有炸弹', desc: '击杀敌人或去商店购买炸弹', t: 1.2 };
+    return;
+  }
+  p.bombs--;
+  G.liveBombs.push({ x: p.x, y: p.y + 4, t: BOMB_FUSE, maxT: BOMB_FUSE, anim: rand(10) });
+  SFX.thud();
+}
+
+function updateBombs(dt) {
+  for (const b of G.liveBombs) {
+    b.anim += dt;
+    b.t -= dt;
+    if (b.t <= 0) bombExplode(b);
+  }
+  G.liveBombs = G.liveBombs.filter(b => b.t > 0);
+}
+
+function bombExplode(b) {
+  const room = G.room;
+  // hurts enemies and the careless bomber alike
+  explodeAt(G, b.x, b.y, BOMB_RADIUS, BOMB_DAMAGE, true);
+  G.shake = Math.max(G.shake, 10);
+  // clear rocks caught in the blast
+  const before = room.rocks.length;
+  room.rocks = room.rocks.filter(rk => {
+    const t = tileRect(rk.cx, rk.cy);
+    return dist(b.x, b.y, t.x + TILE / 2, t.y + TILE / 2) > BOMB_RADIUS - 5;
+  });
+  if (room.rocks.length < before) {
+    for (let i = 0; i < 8; i++) {
+      const a = rand(TAU), s = rand(40, 140);
+      G.particles.push({ x: b.x, y: b.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 60,
+        life: rand(0.3, 0.6), maxLife: 0.6, r: rand(2, 4.5), color: '#8b8375', grav: 500 });
+    }
+  }
+  // crack open a hidden wall to the secret room
+  if (room.hiddenSides) {
+    for (const side in room.hiddenSides) {
+      const dp = DOOR_POS[side];
+      if (dist(b.x, b.y, dp.x, dp.y) > BOMB_RADIUS + 20) continue;
+      const other = room.doors[side];
+      delete room.hiddenSides[side];
+      if (other.hiddenSides) delete other.hiddenSides[OPP[side]];
+      other.seen = true;
+      G.toast = { title: '墙裂开了!', desc: other.kind === 'secret' ? '发现了秘密房间!' : '发现了一条暗道!', t: 2.2 };
+      SFX.doorOpen();
+    }
+  }
+}
+
+// ---------------- active item (spacebar) ----------------
+function useActiveItem() {
+  const p = G.player;
+  if (!p.active) return;
+  const a = p.active;
+  if (a.charge < a.def.cost) {
+    G.toast = { title: '充能不足', desc: '清理房间或拾取电池来充能', t: 1.2 };
+    return;
+  }
+  a.charge = 0;
+  G.toast = { title: a.def.name, desc: a.def.desc, t: 1.4 };
+  a.def.use(G);
+}
 
 
 // ---------------- touch controls ----------------
@@ -206,6 +305,7 @@ function startRun() {
 function loadFloor() {
   applyFloorTheme(G.floorNum);
   G.floor = generateFloor(G.floorNum);
+  revealFloorMap();   // mapping items keep working on every new floor
   // brief location card: floor name + how deep into the run you are
   G.floorIntro = { name: FLOOR_NAMES[G.floorNum - 1] || 'BASEMENT', num: G.floorNum, t: 3.0, max: 3.0 };
   enterRoom(G.floor.start, null);
@@ -220,10 +320,14 @@ function enterRoom(room, fromSide) {
   G.lasers = [];
   G.particles = [];
   G.enemies = [];
+  G.liveBombs = [];
   // Holy Mantle: shield recharges on every room change
   if (G.player.shieldMax > 0) G.player.shieldUp = true;
   room.visited = true;
-  for (const side in room.doors) room.doors[side].seen = true;
+  for (const side in room.doors) {
+    if (room.hiddenSides && room.hiddenSides[side]) continue;  // secret walls stay secret
+    room.doors[side].seen = true;
+  }
   if (!room._base) buildRoomBase(room);
 
   const p = G.player;
@@ -237,17 +341,15 @@ function enterRoom(room, fromSide) {
   for (const o of G.orbits) { o.x = p.x; o.y = p.y; }
   for (const f of G.familiars) { f.x = p.x; f.y = p.y; }
 
+  // shop: stock the shelves on first visit (excludes items already taken)
+  if (room.kind === 'shop' && !room.shopStocked) stockShop(room, G.floorNum);
+
   if (!room.cleared && !room.enemiesSpawned) {
     spawnRoomEnemies(room);
     room.enemiesSpawned = true;
   }
   // resolve pending random pedestal items
-  for (const ped of room.pedestals) {
-    if (ped.pendingRandom && !ped.def) {
-      ped.def = randomItemDef(G.player.itemsTaken);
-      ped.pendingRandom = false;
-    }
-  }
+  resolvePedestals(room, G.player);
 }
 
 // enemy mix per chapter — deeper floors trade fodder for ranged pressure,
@@ -269,8 +371,41 @@ function spawnRoomEnemies(room) {
     room.bossDef = def;
     return;
   }
-  // exponential-ish pressure curve: room population compounds with depth
-  const n = Math.min(10, randi(3, 5) + Math.floor(Math.pow(depth, 1.35) / 3));
+  // mini-boss: an earlier floor's boss at reduced hp, ambushing a normal room
+  if (room.kind === 'miniboss') {
+    const def = bossDefForFloor(Math.max(1, depth - 2));
+    const b = makeBoss(def, W / 2, H / 2 - 40);
+    b.miniboss = true;
+    b.hp *= 0.5;
+    b.maxHpRef = b.hp;
+    b.name = '小 ' + def.name;
+    G.enemies.push(b);
+    room.bossDef = def;
+    return;
+  }
+  // exponential-ish pressure curve: room population compounds with depth;
+  // the shopkeeper only hires a small guard detail
+  const n = room.kind === 'shop'
+    ? Math.min(5, randi(2, 3) + Math.floor(depth / 5))
+    : Math.min(10, randi(3, 5) + Math.floor(Math.pow(depth, 1.35) / 3));
+  const types = roomEnemyPool(depth);
+  const wares = room.shopItems || [];
+  for (let i = 0; i < n; i++) {
+    let x, y, tries = 0;
+    do {
+      x = rand(FLOOR_X + 60, FLOOR_X + FLOOR_W - 60);
+      y = rand(FLOOR_Y + 60, FLOOR_Y + FLOOR_H - 60);
+      tries++;
+    } while (tries < 30 && (dist(x, y, G.player.x, G.player.y) < 190 || pointHitsRock(room, x, y) ||
+      wares.some(w => dist(x, y, w.x, w.y) < 80)));
+    G.enemies.push(makeEnemy(pick(types), x, y, depth));
+  }
+}
+
+// one wave of a challenge room: a burst of enemies teleporting in around the walls
+function spawnChallengeWave(room) {
+  const depth = G.floorNum;
+  const n = Math.min(8, randi(3, 4) + Math.floor(depth / 3));
   const types = roomEnemyPool(depth);
   for (let i = 0; i < n; i++) {
     let x, y, tries = 0;
@@ -278,7 +413,7 @@ function spawnRoomEnemies(room) {
       x = rand(FLOOR_X + 60, FLOOR_X + FLOOR_W - 60);
       y = rand(FLOOR_Y + 60, FLOOR_Y + FLOOR_H - 60);
       tries++;
-    } while (tries < 30 && (dist(x, y, G.player.x, G.player.y) < 190 || pointHitsRock(room, x, y)));
+    } while (tries < 30 && (dist(x, y, G.player.x, G.player.y) < 170 || pointHitsRock(room, x, y)));
     G.enemies.push(makeEnemy(pick(types), x, y, depth));
   }
 }
@@ -287,6 +422,8 @@ function onRoomCleared(room) {
   room.cleared = true;
   G.shake = Math.max(G.shake, 4);
   SFX.doorOpen();
+  // every cleared fight charges the spacebar item by one bar
+  addActiveCharge(G.player, 1);
   // room clear reward, Isaac style
   const roll = Math.random();
   const cx = clamp(G.player.x, FLOOR_X + 60, FLOOR_X + FLOOR_W - 60);
@@ -294,6 +431,8 @@ function onRoomCleared(room) {
   if (roll < 0.12) room.pickups.push(makePickup('chest', W / 2, H / 2));
   else if (roll < 0.3) room.pickups.push(makePickup('coin', cx, cy - 50));
   else if (roll < 0.42) room.pickups.push(makePickup('halfheart', cx, cy - 50));
+  else if (roll < 0.5) room.pickups.push(makePickup('bomb', cx, cy - 50));
+  else if (roll < 0.56) room.pickups.push(makePickup('battery', cx, cy - 50));
 }
 
 function onBossKilled(Gm, boss) {
@@ -319,12 +458,7 @@ function onBossKilled(Gm, boss) {
     room.trapdoor = { x: W / 2, y: H / 2 };
     // reward pedestal next to trapdoor
     spawnItemPedestal(room, W / 2 + 90, H / 2);
-    for (const ped of room.pedestals) {
-      if (ped.pendingRandom && !ped.def) {
-        ped.def = randomItemDef(Gm.player.itemsTaken);
-        ped.pendingRandom = false;
-      }
-    }
+    resolvePedestals(room, Gm.player);
   }
 }
 
@@ -401,6 +535,7 @@ function updatePlay(dt) {
   updateOrbitals(G, dt);
   updateFamiliars(G, dt);
   updateParticles(G, dt);
+  updateBombs(dt);
 
   // --- pickups ---
   for (const pk of G.room.pickups) {
@@ -421,6 +556,15 @@ function updatePlay(dt) {
         if (p.hp < p.maxHp) { p.hp = Math.min(p.maxHp, p.hp + 1); pk.taken = true; SFX.heart(); }
       } else if (pk.kind === 'coin') {
         p.coins++; pk.taken = true; SFX.coin();
+      } else if (pk.kind === 'bomb') {
+        p.bombs++; pk.taken = true; SFX.thud();
+      } else if (pk.kind === 'battery') {
+        // only consumed when it actually charges something
+        if (p.active && p.active.charge < p.active.def.cost) {
+          addActiveCharge(p, 1);
+          pk.taken = true;
+          SFX.coin();
+        }
       } else if (pk.kind === 'chest') {
         pk.taken = true;
         SFX.chest();
@@ -429,9 +573,7 @@ function updatePlay(dt) {
           G.room.pickups.push(makePickup('coin', pk.x - 24, pk.y));
           G.room.pickups.push(makePickup(chance(0.5) ? 'heart' : 'coin', pk.x + 24, pk.y));
         }
-        for (const ped of G.room.pedestals) {
-          if (ped.pendingRandom && !ped.def) { ped.def = randomItemDef(p.itemsTaken); ped.pendingRandom = false; }
-        }
+        resolvePedestals(G.room, p);
       }
     }
   }
@@ -440,24 +582,119 @@ function updatePlay(dt) {
   // --- item pedestals ---
   for (const ped of G.room.pedestals) {
     ped.anim += dt;
-    if (ped.taken || !ped.def) continue;
+    ped.swapT = Math.max(0, (ped.swapT || 0) - dt);
+    if (ped.taken || !ped.def || ped.swapT > 0) continue;
     if (dist(ped.x, ped.y, p.x, p.y) < 26 + p.r) {
-      ped.taken = true;
-      const hadFlight = p.flight;
-      ped.def.apply(p);
-      clampPlayerStats(p);
-      p.itemsTaken.push(ped.def.id);
-      G.stats.items++;
-      G.toast = { title: ped.def.name, desc: ped.def.desc, t: 2.6 };
-      SFX.item();
-      // flight pickup flourish: feathers burst out as the wings sprout
-      if (!hadFlight && p.flight) spawnFeathers(G, p.x, p.y);
+      if (ped.def.active) {
+        // spacebar item: swap with whatever is currently held
+        const old = equipActive(p, ped.def);
+        G.stats.items++;
+        G.toast = { title: ped.def.name, desc: ped.def.desc + '　(空格使用)', t: 2.6 };
+        SFX.item();
+        if (old) { ped.def = old; ped.swapT = 1.2; }
+        else ped.taken = true;
+      } else {
+        ped.taken = true;
+        const hadFlight = p.flight;
+        ped.def.apply(p);
+        clampPlayerStats(p);
+        p.itemsTaken.push(ped.def.id);
+        G.stats.items++;
+        G.toast = { title: ped.def.name, desc: ped.def.desc, t: 2.6 };
+        SFX.item();
+        // flight pickup flourish: feathers burst out as the wings sprout
+        if (!hadFlight && p.flight) spawnFeathers(G, p.x, p.y);
+      }
+      // challenge room: grabbing the prize slams the doors and starts the waves
+      if (G.room.kind === 'challenge' && !G.room.challengeStarted) {
+        G.room.challengeStarted = true;
+        G.room.cleared = false;
+        G.room.enemiesSpawned = true;
+        G.room.challengeWaves = 1;   // one more wave after this first one
+        spawnChallengeWave(G.room);
+        G.toast = { title: '挑战开始!', desc: '击退所有来袭的敌人!', t: 2.2 };
+        G.shake = Math.max(G.shake, 6);
+        SFX.door();
+      }
+    }
+  }
+
+  // --- shop wares ---
+  // walking into a ware buys it instantly when the coin purse covers the
+  // price; otherwise a short "not enough" toast (throttled per ware)
+  if (G.room.shopItems) {
+    for (const w of G.room.shopItems) {
+      w.anim += dt;
+      w.denyT = Math.max(0, w.denyT - dt);
+      w.near = false;
+      if (w.taken) continue;
+      const d = dist(w.x, w.y, p.x, p.y);
+      w.near = d < 90;
+      if (d >= 26 + p.r) continue;
+      if (p.coins < w.price) {
+        if (w.denyT <= 0) {
+          w.denyT = 1.2;
+          G.toast = { title: '金币不足', desc: '还差 ' + (w.price - p.coins) + ' 金币', t: 1.2 };
+        }
+        continue;
+      }
+      if (w.kind === 'heart') {
+        if (p.hp >= p.maxHp) continue;      // don't waste coins at full health
+        p.coins -= w.price;
+        p.hp = Math.min(p.maxHp, p.hp + 2);
+        w.taken = true;
+        SFX.coin(); SFX.heart();
+      } else if (w.kind === 'bomb') {
+        p.coins -= w.price;
+        p.bombs += 2;
+        w.taken = true;
+        SFX.coin(); SFX.thud();
+      } else if (w.kind === 'battery') {
+        // useless without a chargeable spacebar item — don't take the money
+        if (!p.active || p.active.charge >= p.active.def.cost) {
+          if (w.denyT <= 0) {
+            w.denyT = 1.2;
+            G.toast = { title: '暂时用不上', desc: p.active ? '主动道具已充满' : '还没有主动道具', t: 1.2 };
+          }
+          continue;
+        }
+        p.coins -= w.price;
+        addActiveCharge(p, 1);
+        w.taken = true;
+        SFX.coin();
+      } else if (w.kind === 'active') {
+        p.coins -= w.price;
+        w.taken = true;
+        equipActive(p, w.def);   // shop swaps discard the old item
+        G.stats.items++;
+        G.toast = { title: w.def.name, desc: w.def.desc + '　(空格使用)', t: 2.6 };
+        SFX.coin(); SFX.item();
+      } else {
+        p.coins -= w.price;
+        w.taken = true;
+        const hadFlight = p.flight;
+        w.def.apply(p);
+        clampPlayerStats(p);
+        p.itemsTaken.push(w.def.id);
+        G.stats.items++;
+        G.toast = { title: w.def.name, desc: w.def.desc, t: 2.6 };
+        SFX.coin(); SFX.item();
+        if (!hadFlight && p.flight) spawnFeathers(G, p.x, p.y);
+      }
     }
   }
 
   // --- room cleared? ---
   if (!G.room.cleared && G.room.enemiesSpawned && G.enemies.length === 0) {
-    onRoomCleared(G.room);
+    if (G.room.challengeWaves > 0) {
+      // next challenge wave rolls in instead of opening the doors
+      G.room.challengeWaves--;
+      spawnChallengeWave(G.room);
+      G.toast = { title: '下一波!', desc: '守住!', t: 1.4 };
+      SFX.door();
+    } else {
+      onRoomCleared(G.room);
+    }
   }
 
   // --- trapdoor to next floor ---
@@ -469,11 +706,16 @@ function updatePlay(dt) {
   // --- door transitions (multi-room floors) ---
   if (G.room.cleared) {
     for (const side in G.room.doors) {
+      if (G.room.hiddenSides && G.room.hiddenSides[side]) continue;  // unbombed secret wall
       const dp = DOOR_POS[side];
       if (dist(p.x, p.y, dp.x, dp.y) < 30) {
         const next = G.room.doors[side];
         const opposite = { N: 'S', S: 'N', W: 'E', E: 'W' }[side];
+        // curse room doors are lined with spikes — half a heart to cross,
+        // unless dodo can fly over them
+        const spiked = (G.room.kind === 'curse' || next.kind === 'curse') && !p.flight;
         enterRoom(next, opposite);
+        if (spiked) hurtPlayer(G, 1, DOOR_POS[opposite].x, DOOR_POS[opposite].y);
         return;
       }
     }
@@ -513,11 +755,15 @@ function render() {
     ctx.restore();
   }
 
-  // doors
+  // doors (hidden secret walls draw nothing — the wall looks solid)
+  const DOOR_KINDS = { boss: 1, treasure: 1, shop: 1, curse: 1, challenge: 1, secret: 1 };
   for (const side of ['N', 'S', 'W', 'E']) {
     const next = room.doors[side];
     if (!next) continue;
-    drawDoor(ctx, side, room.cleared ? 'open' : 'closed', next.kind === 'boss' ? 'boss' : (next.kind === 'treasure' ? 'treasure' : 'normal'));
+    if (room.hiddenSides && room.hiddenSides[side]) continue;
+    const doorKind = DOOR_KINDS[next.kind] ? next.kind
+      : (room.kind === 'curse' ? 'curse' : 'normal');   // curse spikes hurt on the way out too
+    drawDoor(ctx, side, room.cleared ? 'open' : 'closed', doorKind);
   }
 
   // rocks
@@ -526,6 +772,8 @@ function render() {
   // pedestals & pickups
   for (const ped of room.pedestals) drawPedestal(ctx, ped);
   for (const pk of room.pickups) drawPickup(ctx, pk);
+  if (room.shopItems) for (const w of room.shopItems) drawShopWare(ctx, w, G.player.coins);
+  for (const b of G.liveBombs) drawLiveBomb(ctx, b);
 
   // entities sorted by y for painter's order
   const drawList = [];
@@ -587,10 +835,40 @@ function render() {
     ctx.globalAlpha = 1;
   }
 
+  // item info cards float above everything else in the room: pedestals,
+  // pickups and shop wares all show name + effect when the player is near
+  const tips = [];
+  for (const ped of room.pedestals) {
+    if (ped.taken || !ped.def) continue;
+    if (dist(ped.x, ped.y, p.x, p.y) < 90) {
+      tips.push({ name: ped.def.name, desc: ped.def.desc, x: ped.x, y: ped.y });
+    }
+  }
+  for (const pk of room.pickups) {
+    if (pk.taken) continue;
+    if (dist(pk.x, pk.y, p.x, p.y) < 90) {
+      const t = { heart: ['红心', '回复一颗心!'], halfheart: ['半颗心', '回复半颗心!'],
+        coin: ['金币', '捡起来存进钱袋!'], chest: ['宝箱', '开启宝箱拿奖励!'],
+        bomb: ['炸弹', '按 E 放置 能炸开裂缝的墙!'],
+        battery: ['电池', '为主动道具充能一层!'] }[pk.kind];
+      if (t) tips.push({ name: t[0], desc: t[1], x: pk.x, y: pk.y });
+    }
+  }
+  if (room.shopItems) {
+    for (const w of room.shopItems) {
+      if (w.near && !w.taken) {
+        tips.push({ name: w.def ? w.def.name : w.name,
+          desc: w.def ? w.def.desc : w.desc, price: w.price, x: w.x, y: w.y });
+      }
+    }
+  }
+  for (const t of tips) drawItemTooltip(ctx, t, G.player.coins);
+
   renderHUD();
   if (G.state === 'play' && G.floorIntro) renderFloorIntro();
   ctx.restore();
 
+  if (G.state === 'play' && !G.paused && G.mapOverlay) drawFullMap(ctx, G.floor, G.room);
   if (G.state === 'dead') renderDeath();
   if (G.state === 'win') renderWin();
   if (G.paused) renderPause();
@@ -666,6 +944,49 @@ function renderHUD() {
   ctx.font = 'bold 16px Trebuchet MS';
   ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
   ctx.fillText('× ' + p.coins, 48, 61);
+  // bombs
+  ctx.fillStyle = '#232019';
+  ctx.strokeStyle = PAL.outline;
+  ctx.lineWidth = 2.5;
+  ctx.beginPath(); ctx.arc(34, 86, 8, 0, TAU); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle = '#c9a437';
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(37, 79); ctx.quadraticCurveTo(41, 74, 38, 72); ctx.stroke();
+  ctx.fillStyle = '#efe6d2';
+  ctx.font = 'bold 16px Trebuchet MS';
+  ctx.fillText('× ' + p.bombs, 48, 87);
+  // active item slot: icon in a frame, charge pips underneath
+  if (p.active) {
+    const ax = 34, ay = 130;
+    const def = p.active.def;
+    const full = p.active.charge >= def.cost;
+    ctx.fillStyle = 'rgba(10,8,6,0.55)';
+    ctx.strokeStyle = full ? '#f4d03f' : '#5d4c33';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.rect(ax - 22, ay - 22, 44, 44); ctx.fill(); ctx.stroke();
+    ctx.save();
+    ctx.translate(ax, ay);
+    ctx.scale(0.95, 0.95);
+    drawItemIcon(ctx, 0, 0, def);
+    ctx.restore();
+    // pips: one bar per charge level this item needs
+    const pw = Math.min(12, (44 - (def.cost - 1) * 3) / def.cost);
+    const totalW = def.cost * pw + (def.cost - 1) * 3;
+    for (let i = 0; i < def.cost; i++) {
+      const bx = ax - totalW / 2 + i * (pw + 3);
+      ctx.fillStyle = i < p.active.charge ? '#f4d03f' : '#3a3128';
+      ctx.strokeStyle = PAL.outline;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.rect(bx, ay + 27, pw, 7); ctx.fill(); ctx.stroke();
+    }
+    if (full) {
+      ctx.fillStyle = 'rgba(244,208,63,' + (0.55 + 0.35 * Math.sin(performance.now() / 250)) + ')';
+      ctx.font = 'bold 12px Trebuchet MS';
+      ctx.textAlign = 'center';
+      ctx.fillText('空格', ax, ay + 47);
+      ctx.textAlign = 'left';
+    }
+  }
   // floor name
   ctx.textAlign = 'center';
   ctx.font = 'bold 13px Georgia';
@@ -789,8 +1110,8 @@ function renderMenu() {
   ctx.fillText('按 Enter 或 点击屏幕 开始', W / 2, 430);
   ctx.font = '15px Trebuchet MS';
   ctx.fillStyle = 'rgba(220,205,180,0.65)';
-  ctx.fillText('WASD 移动　　方向键 ↑↓←→ 发射眼泪', W / 2, 470);
-  ctx.fillText('清空房间开门前进 · 打倒每层 Boss · 拾取道具变强', W / 2, 494);
+  ctx.fillText('WASD 移动　方向键 发射眼泪　E 放炸弹　空格 主动道具　Tab 地图', W / 2, 470);
+  ctx.fillText('清空房间开门前进 · 打倒每层 Boss · 炸开秘密房 · 拾取道具变强', W / 2, 494);
   ctx.restore();
 }
 

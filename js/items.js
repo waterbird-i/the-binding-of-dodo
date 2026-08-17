@@ -231,7 +231,79 @@ const ITEM_DEFS = [
       if (!p.flight) p.wingGrow = 1;   // sprout animation only on first pair
       p.flight = true; p.moveSpeed += 24;
     } },
+
+  // --- 89..91 mapping items, straight out of Isaac ---
+  { id: 'the_compass', name: '指南针', desc: '显示所有特殊房间的位置!', icon: 'compass',
+    apply(p) { p.compass = true; revealFloorMap(); } },
+  { id: 'treasure_map', name: '藏宝图', desc: '显示本层的完整布局!', icon: 'map',
+    apply(p) { p.treasureMap = true; revealFloorMap(); } },
+  { id: 'blue_map', name: '蓝图', desc: '显示秘密房间的位置!', icon: 'map', tint: '#7fa8e8',
+    apply(p) { p.blueMap = true; revealFloorMap(); } },
 ];
+
+// ============ active items ============
+// Spacebar items. Each carries its own charge cost (in bars); charge comes
+// from clearing rooms (+1) or picking up batteries (+1). Picked up fully
+// charged, Isaac style. `use` runs against the live game state.
+const ACTIVE_DEFS = [
+  { id: 'act_tear_burst', name: '泪雨风暴', desc: '重创房间里的所有敌人!', icon: 'bigtear', tint: '#9fc6e8',
+    active: true, cost: 2,
+    use(G) {
+      const p = G.player;
+      for (const e of G.enemies) {
+        if (e.dead || e.spawnT > 0) continue;
+        damageEnemy(G, e, p.damage * 3 + 8, e.x - p.x, e.y - p.y);
+        spawnSplash(G, e.x, e.y, '#9fc6e8');
+      }
+      G.shake = Math.max(G.shake, 8);
+      SFX.laser();
+    } },
+  { id: 'act_heal', name: '妈妈的拥抱', desc: '回复两颗心!', icon: 'heart', tint: '#f2a8b8',
+    active: true, cost: 3,
+    use(G) {
+      const p = G.player;
+      p.hp = Math.min(p.maxHp, p.hp + 4);
+      spawnSplash(G, p.x, p.y - 10, '#e86a7a');
+      SFX.heart();
+    } },
+  { id: 'act_teleport', name: '回家的路', desc: '传送回起始房间!', icon: 'moon', tint: '#cfd8ff',
+    active: true, cost: 1,
+    use(G) {
+      // leaving mid-fight resets the room so it can't be cheesed into a clear
+      if (!G.room.cleared) G.room.enemiesSpawned = false;
+      spawnFeathers(G, G.player.x, G.player.y);
+      enterRoom(G.floor.start, null);
+      SFX.stairs();
+    } },
+  { id: 'act_bomb_bag', name: '炸弹锦囊', desc: '立刻获得两颗炸弹!', icon: 'bomb', tint: '#8a9451',
+    active: true, cost: 2,
+    use(G) { G.player.bombs += 2; SFX.chest(); } },
+  { id: 'act_freeze', name: '寒冬之息', desc: '冻结所有敌人 5 秒!', icon: 'ice',
+    active: true, cost: 4,
+    use(G) {
+      for (const e of G.enemies) {
+        if (e.dead) continue;
+        e.slowT = Math.max(e.slowT, 5);
+        spawnSplash(G, e.x, e.y, '#bfe6ff');
+      }
+      SFX.pause(true);
+    } },
+];
+const ACTIVE_BY_ID = {};
+for (const d of ACTIVE_DEFS) ACTIVE_BY_ID[d.id] = d;
+
+// equip an active item; returns the one that was held before (or null)
+function equipActive(p, def) {
+  const old = p.active ? p.active.def : null;
+  p.active = { def, charge: def.cost };   // spawns fully charged
+  return old;
+}
+
+// +n charge bars, capped at the item's own cost
+function addActiveCharge(p, n) {
+  if (!p.active) return;
+  p.active.charge = Math.min(p.active.def.cost, p.active.charge + n);
+}
 
 const ITEM_BY_ID = {};
 for (const d of ITEM_DEFS) ITEM_BY_ID[d.id] = d;
@@ -249,4 +321,57 @@ function spawnItemPedestal(room, x, y) {
   const exclude = (typeof G !== 'undefined' && G.player) ? G.player.itemsTaken : [];
   const spot = findFreeSpot(room, x, y);
   room.pedestals.push({ x: spot.x, y: spot.y, def: randomItemDef(exclude), anim: rand(10), taken: false });
+}
+
+// ============ shop ============
+// Wares are stocked once, on the first visit: a heart plus two random items
+// the player doesn't own yet. Prices scale with depth like Isaac's shops.
+function itemShopPrice(depth) {
+  return 15 + (depth >= 5 ? 5 : 0) + (depth >= 9 ? 5 : 0);
+}
+
+function stockShop(room, depth) {
+  room.shopStocked = true;
+  const base = itemShopPrice(depth);
+  const wy = FLOOR_Y + FLOOR_H * 0.32;
+  const exclude = (typeof G !== 'undefined' && G.player) ? G.player.itemsTaken.slice() : [];
+  const defs = [];
+  for (let i = 0; i < 2; i++) {
+    const d = randomItemDef(exclude);
+    exclude.push(d.id);
+    defs.push(d);
+  }
+  const ware = (w, i) => Object.assign(w, {
+    x: W / 2 + [-225, -75, 75, 225][i], y: wy,
+    anim: rand(10), taken: false, near: false, denyT: 0,
+  });
+  // consumable slot alternates between bombs and a battery
+  const consumable = chance(0.5)
+    ? { kind: 'bomb', name: '两颗炸弹', desc: '炸开石头和裂缝的墙!', price: 5 }
+    : { kind: 'battery', name: '电池', desc: '为主动道具充能一层!', price: 4 };
+  // second item slot sometimes stocks an active item instead
+  const slot2 = chance(0.35)
+    ? { kind: 'active', def: pick(ACTIVE_DEFS), price: base + 5 }
+    : { kind: 'item', def: defs[1], price: base + 5 };
+  room.shopItems = [
+    ware({ kind: 'heart', name: '红心', desc: '回复一颗心!', price: 3 }, 0),
+    ware(consumable, 1),
+    ware({ kind: 'item', def: defs[0], price: base }, 2),
+    ware(slot2, 3),
+  ];
+}
+
+// resolve deferred pedestal contents (random passive / random active) the
+// moment the player could actually see them
+function resolvePedestals(room, p) {
+  for (const ped of room.pedestals) {
+    if (ped.def) { ped.pendingRandom = ped.pendingActive = false; continue; }
+    if (ped.pendingActive) {
+      ped.def = pick(ACTIVE_DEFS);
+      ped.pendingActive = false;
+    } else if (ped.pendingRandom) {
+      ped.def = randomItemDef(p ? p.itemsTaken : []);
+      ped.pendingRandom = false;
+    }
+  }
 }
