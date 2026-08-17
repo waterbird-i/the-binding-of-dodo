@@ -266,6 +266,7 @@ async function runSuite(page, context, consoleErrors) {
     forms: [...new Set(BOSS_DEFS.map(b => b.form))],
     moves: [...new Set(BOSS_DEFS.map(b => b.move))],
     attacks: [...new Set(BOSS_DEFS.flatMap(b => b.attacks))],
+    attackSlots: BOSS_DEFS.reduce((s, b) => s + b.attacks.length, 0),
     perFloor: Array.from({ length: 12 }, (_, i) => bossDefForFloor(i + 1).id),
     final: FINAL_BOSS_DEF.id,
     known: BOSS_DEFS.every(b => b.attacks.every(a => typeof BOSS_ATTACKS[a] === 'function')),
@@ -278,7 +279,9 @@ async function runSuite(page, context, consoleErrors) {
   ok('每个 Boss 的攻击都有实现', bossInfo.known);
   ok('每个 Boss 的形态都有绘制函数', bossInfo.forms_ok);
   ok('形态数 >= 9 种', bossInfo.forms.length >= 9, bossInfo.forms.join(','));
-  ok('攻击行为 >= 10 种', bossInfo.attacks.length >= 10, bossInfo.attacks.join(','));
+  ok('攻击行为 >= 30 种', bossInfo.attacks.length >= 30, bossInfo.attacks.join(','));
+  ok('招式全 Boss 专属互不重复', bossInfo.attacks.length === bossInfo.attackSlots,
+    'uniq=' + bossInfo.attacks.length + ' slots=' + bossInfo.attackSlots);
 
   // run every attack of every boss through a few hundred simulated frames
   const bossSim = await page.evaluate(() => {
@@ -329,7 +332,7 @@ async function runSuite(page, context, consoleErrors) {
     bossCurve.first + ' -> ' + bossCurve.last);
   ok('最终 Boss 血量最高', bossCurve.final > bossCurve.last, bossCurve.final);
   ok('后期 Boss 接触伤害 >= 2 心', bossCurve.lateTouch);
-  ok('>= 5 个 Boss 掌握全屏发散持续激光', bossCurve.sweepUsers >= 5, 'sweepUsers=' + bossCurve.sweepUsers);
+  ok('全屏发散持续激光收归单一 Boss 专属', bossCurve.sweepUsers === 1, 'sweepUsers=' + bossCurve.sweepUsers);
 
   // ------------------------------------------- new balance & presentation rules
   section('蓄力激光 + Boss 30s 下限 + 楼层横幅');
