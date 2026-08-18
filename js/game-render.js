@@ -210,10 +210,11 @@ function render() {
   if (G.state === 'play' && G.floorIntro) renderFloorIntro();
   ctx.restore();
 
-  if (G.state === 'play' && !G.paused && G.mapOverlay && G.floorCurse !== 'lost') drawFullMap(ctx, G.floor, G.room);
+  if (G.state === 'play' && G.mapOverlay && G.floorCurse !== 'lost') drawFullMap(ctx, G.floor, G.room);
   if (G.state === 'dead') renderDeath();
   if (G.state === 'win') renderWin();
-  if (G.paused) (G.unlockPanel ? renderUnlockPanel() : renderPause());
+  // the map overlay stands in for the pause panel: on touch it opens by pausing
+  if (G.paused && !G.mapOverlay) (G.unlockPanel ? renderUnlockPanel() : renderPause());
   if (G.unlockPopups.length) renderUnlockPopups();
   applyPostFX(ctx);
 }
@@ -275,6 +276,9 @@ function drawEnemyCore(e) {
 
 function renderHUD() {
   const p = G.player;
+  // on touch the left column slides below the corner buttons (see syncHudTop)
+  ctx.save();
+  ctx.translate(0, G.hudTop);
   if (G.floorCurse === 'unknown') {
     // curse of the unknown: the heart row collapses into a single '?'
     drawHeartShape(ctx, 34, 30, 15, '#3a2c22', PAL.outline);
@@ -287,10 +291,12 @@ function renderHUD() {
   } else {
     drawHUDHearts(ctx, p.hp, p.maxHp, p.soulHp);
   }
+  ctx.restore();
   // curse of the lost: no minimap at all (the Tab overlay is gated below too)
   if (G.floorCurse !== 'lost') drawMinimap(ctx, G.floor, G.room);
   // coins
   ctx.save();
+  ctx.translate(0, G.hudTop);
   ctx.fillStyle = '#e7b93c';
   ctx.strokeStyle = PAL.outline;
   ctx.lineWidth = 2.5;
@@ -363,8 +369,11 @@ function renderHUD() {
       ctx.textAlign = 'left';
     }
   }
-  // floor name
-  ctx.textAlign = 'center';
+  ctx.restore();
+
+  // floor name (screen-fixed, so outside the HUD column shift)
+  ctx.save();
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.font = 'bold 13px Georgia';
   ctx.fillStyle = 'rgba(240,230,210,0.5)';
   ctx.fillText(FLOOR_NAMES[G.floorNum - 1] || 'BASEMENT', W / 2, H - 18);

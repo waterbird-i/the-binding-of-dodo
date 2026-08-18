@@ -446,38 +446,51 @@ function minimapRoomFill(r, current) {
   return fill;
 }
 
+// minimap geometry: 5×5 cells of the floor grid, pinned to the top-right HUD
+// corner. Shared by the drawing pass and the tap target that opens the full map.
+const MINI_CELL = 17, MINI_GAP = 3, MINI_W = 5, MINI_H = 5;
+function minimapBox() {
+  const s = MINI_CELL + MINI_GAP;
+  const ox = W - 24 - (MINI_W * s) / 2, oy = 24 + (MINI_H * s) / 2;
+  return { ox, oy, s,
+    x: ox - (MINI_W / 2) * s - 6, y: oy - (MINI_H / 2) * s - 6,
+    w: MINI_W * s + 12, h: MINI_H * s + 12 };
+}
+// the hint line under the map counts as part of the tap target
+function minimapHit(x, y) {
+  const b = minimapBox();
+  return x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h + 20;
+}
+
 function drawMinimap(g, floor, current) {
-  const cell = 17, gap = 3;
   // bounds of known rooms
   const known = floor.rooms.filter(r => r.visited || r.seen);
   if (!known.length) return;
-  const mapW = 5, mapH = 5; // cells viewport centered on current
-  const ox = W - 24 - (mapW * (cell + gap)) / 2;
-  const oy = 24 + (mapH * (cell + gap)) / 2;
+  const b = minimapBox();
+  const cell = MINI_CELL, s = b.s;
   g.save();
   g.globalAlpha = 0.92;
   // backdrop
   g.fillStyle = 'rgba(10,8,6,0.55)';
-  g.fillRect(ox - (mapW / 2) * (cell + gap) - 6, oy - (mapH / 2) * (cell + gap) - 6,
-    mapW * (cell + gap) + 12, mapH * (cell + gap) + 12);
+  g.fillRect(b.x, b.y, b.w, b.h);
   for (const r of known) {
     const rx = r.gx - current.gx, ry = r.gy - current.gy;
     if (Math.abs(rx) > 2 || Math.abs(ry) > 2) continue;
-    const x = ox + rx * (cell + gap) - cell / 2;
-    const y = oy + ry * (cell + gap) - cell / 2;
+    const x = b.ox + rx * s - cell / 2;
+    const y = b.oy + ry * s - cell / 2;
     g.fillStyle = minimapRoomFill(r, current);
     g.fillRect(x, y, cell, cell);
     drawRoomGlyph(g, r, x + cell / 2, y + cell / 2, 1);
   }
-  // Tab hint under the map
+  // hint under the map
   g.font = '11px Trebuchet MS';
   g.textAlign = 'center';
   g.fillStyle = 'rgba(216,204,176,0.4)';
-  g.fillText('Tab 全图', ox, oy + (mapH / 2) * (cell + gap) + 16);
+  g.fillText(IS_TOUCH ? '点这里看全图' : 'Tab 全图', b.ox, b.oy + (MINI_H / 2) * s + 16);
   g.restore();
 }
 
-// the held-Tab overlay: every known room of the floor at once
+// the full-floor overlay: held Tab on a keyboard, a minimap tap on touch
 function drawFullMap(g, floor, current) {
   const known = floor.rooms.filter(r => r.visited || r.seen);
   if (!known.length) return;
@@ -499,7 +512,7 @@ function drawFullMap(g, floor, current) {
   g.fillText('本 层 地 图', W / 2, py - 46);
   g.font = '13px Trebuchet MS';
   g.fillStyle = 'rgba(216,204,176,0.55)';
-  g.fillText('松开 Tab 继续', W / 2, py + gh + 34);
+  g.fillText(IS_TOUCH ? '点击任意处继续' : '松开 Tab 继续', W / 2, py + gh + 34);
   for (const r of known) {
     const x = px + (r.gx - minX) * (cell + gap);
     const y = py + (r.gy - minY) * (cell + gap);

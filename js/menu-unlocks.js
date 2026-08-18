@@ -140,7 +140,8 @@ function renderUnlockPanel() {
   ctx.textAlign = 'center';
   ctx.font = 'bold 17px Georgia';
   ctx.fillStyle = Math.sin(performance.now() / 190) > -0.2 ? '#efe6d2' : 'rgba(239,230,210,0.35)';
-  ctx.fillText('按 I 或 Esc 关闭　·　点击屏幕也可关闭', W / 2, H - 24);
+  ctx.fillText(IS_TOUCH ? '点击屏幕关闭　·　也可再点左上角的图鉴按钮'
+    : '按 I 或 Esc 关闭　·　点击屏幕也可关闭', W / 2, H - 24);
   ctx.restore();
 }
 

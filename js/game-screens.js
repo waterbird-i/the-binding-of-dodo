@@ -85,7 +85,7 @@ function renderMenu() {
   ctx.font = '15px Trebuchet MS';
   ctx.fillStyle = 'rgba(220,205,180,0.65)';
   ctx.fillText(IS_TOUCH
-    ? '左摇杆 移动　右侧四向键 发射眼泪　悬浮按钮 放炸弹 / 用主动道具'
+    ? '左摇杆 移动　四向键 发射眼泪　炸弹 / 道具 悬浮按钮　左上角 暂停 / 图鉴　点小地图看全图'
     : 'WASD 移动　方向键 发射眼泪　E 放炸弹　空格 主动道具　Tab 地图', W / 2, 492);
   ctx.fillText('清空房间开门前进 · 打倒每层 Boss · 炸开秘密房 · 碰撞获取道具变强'
     + (G.pendingSeedStr ? '　·　种子 ' + G.pendingSeedStr : '　·　S 输入种子'), W / 2, 514);

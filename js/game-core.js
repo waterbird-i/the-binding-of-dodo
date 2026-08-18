@@ -30,7 +30,8 @@ const G = {
   familiars: [],
   particles: [],
   liveBombs: [],          // placed bombs ticking down in the current room
-  mapOverlay: false,      // hold Tab: full floor map
+  mapOverlay: false,      // hold Tab (or tap the minimap): full floor map
+  hudTop: 0,              // touch: HUD column drops below the corner buttons
   shake: 0,
   dev: false,             // developer mode: item stepping + immunity
   floorNum: 1,
@@ -82,19 +83,10 @@ window.addEventListener('keydown', e => {
   if (FIRE_DIRS[e.code]) {
     if (!fireStack.includes(e.code)) fireStack.push(e.code);
   }
-  // I toggles the unlock codex; P stays pause-only so the two never collide.
-  // On the menu the codex overlays the title; mid-run it pauses the game
-  // underneath, and closing it resumes play.
+  // I toggles the unlock codex; P stays pause-only so the two never collide
   if (e.code === 'KeyI' || (e.code === 'Escape' && G.unlockPanel)) {
     e.preventDefault();
-    if (G.state === 'menu') {
-      G.unlockPanel = !G.unlockPanel;
-      SFX.item();
-    } else if (G.state === 'play') {
-      if (G.unlockPanel) { G.unlockPanel = false; setPaused(false); }
-      else { setPaused(true); G.unlockPanel = true; }
-      SFX.item();
-    }
+    toggleCodex();
     return;
   }
   if (e.code === 'KeyP' || e.code === 'Escape') {
@@ -154,11 +146,23 @@ window.addEventListener('pointerdown', () => canvas.focus());
 canvas.addEventListener('pointerdown', e => {
   SFX.unlock();
   if (G.paused) {
-    // tapping the codex closes it and resumes; otherwise the pause overlay
-    // keeps its one clickable region: the changelog doc link
+    // tapping the codex or the full map closes it and resumes; otherwise the
+    // pause overlay keeps its one clickable region: the changelog doc link
     if (G.unlockPanel) { G.unlockPanel = false; setPaused(false); return; }
+    if (G.mapOverlay) { G.mapOverlay = false; setPaused(false); return; }
     if (pauseDocLinkHit(e)) { window.open(LB_DOC_URL, '_blank'); return; }
     setPaused(false); return;
+  }
+  if (G.state === 'play') {
+    // tapping the minimap opens the full floor map and freezes the run,
+    // the equivalent of holding Tab on a keyboard
+    const pos = canvasXY(e);
+    if (G.floorCurse !== 'lost' && minimapHit(pos.x, pos.y)) {
+      setPaused(true);
+      G.mapOverlay = true;   // after setPaused: pausing releases held input
+      SFX.item();
+    }
+    return;
   }
   if (G.state === 'menu') {
     if (G.unlockPanel) { G.unlockPanel = false; return; }
@@ -175,6 +179,19 @@ canvas.addEventListener('pointerdown', e => {
   }
   if (G.state !== 'play') confirmScreen();
 });
+
+// On the menu the codex overlays the title; mid-run it pauses the game
+// underneath, and closing it resumes play. Shared by the I key and the
+// touch 「图鉴」 button.
+function toggleCodex() {
+  if (G.state === 'menu') {
+    G.unlockPanel = !G.unlockPanel;
+  } else if (G.state === 'play') {
+    if (G.unlockPanel) { G.unlockPanel = false; setPaused(false); }
+    else { setPaused(true); G.mapOverlay = false; G.unlockPanel = true; }
+  } else return;
+  SFX.item();
+}
 
 function confirmScreen() {
   if (G.state === 'menu' && G.unlockPanel) { G.unlockPanel = false; return; }
@@ -232,6 +249,10 @@ function devStepItem(step) {
 function setPaused(on) {
   if (G.state !== 'play' || G.paused === on) return;
   G.paused = on;
+  // overlays (pause panel / codex / full map) would sit under the stick and the
+  // shooting pad, so those fold away while one is up — the corner buttons stay
+  // (the pause icon flips to a play arrow through this same class)
+  touchUI.classList.toggle('overlay', on);
   if (on) {
     G.pauseStart = performance.now();
     releaseInput();
@@ -351,19 +372,33 @@ if (IS_TOUCH) {
         .catch(() => {});
     }
   }, { once: true });
+  // the 暂停 / 图鉴 buttons float over the canvas' top-left corner, exactly
+  // where the heart row is drawn. Measure how far down they reach (in canvas
+  // units — the canvas is CSS-scaled) and let renderHUD start below them.
+  const syncHudTop = () => {
+    const c = canvas.getBoundingClientRect();
+    const pad = document.getElementById('top-pad').getBoundingClientRect();
+    G.hudTop = c.height ? Math.max(0, (pad.bottom - c.top) * (H / c.height) + 6) : 0;
+  };
+  window.addEventListener('resize', syncHudTop);
+  syncHudTop();
 }
 (function setupTouch() {
   const zone = document.getElementById('stick-zone');
   const base = document.getElementById('stick-base');
   const knob = document.getElementById('stick-knob');
   let stickId = null, cx = 0, cy = 0;
+  // the pad scales with the screen (CSS vars), so every offset is measured
+  // instead of hard-coded, and the knob rides on a transform
+  const maxTravel = () => base.offsetWidth * 0.42;
   zone.addEventListener('touchstart', e => {
     e.preventDefault();
     const t = e.changedTouches[0];
     stickId = t.identifier;
     cx = t.clientX; cy = t.clientY;
-    base.style.left = (cx - 60 - zone.getBoundingClientRect().left) + 'px';
-    base.style.top = (cy - 60 - zone.getBoundingClientRect().top) + 'px';
+    const zr = zone.getBoundingClientRect(), half = base.offsetWidth / 2;
+    base.style.left = (cx - half - zr.left) + 'px';
+    base.style.top = (cy - half - zr.top) + 'px';
     base.style.bottom = 'auto';
   }, { passive: false });
   zone.addEventListener('touchmove', e => {
@@ -372,10 +407,9 @@ if (IS_TOUCH) {
       if (t.identifier !== stickId) continue;
       let dx = t.clientX - cx, dy = t.clientY - cy;
       const d = Math.hypot(dx, dy);
-      const max = 50;
+      const max = maxTravel();
       if (d > max) { dx *= max / d; dy *= max / d; }
-      knob.style.left = (35 + dx) + 'px';
-      knob.style.top = (35 + dy) + 'px';
+      knob.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
       touch.moveX = dx / max; touch.moveY = dy / max;
     }
   }, { passive: false });
@@ -384,18 +418,21 @@ if (IS_TOUCH) {
       if (t.identifier !== stickId) continue;
       stickId = null;
       touch.moveX = 0; touch.moveY = 0;
-      knob.style.left = '35px'; knob.style.top = '35px';
+      knob.style.transform = '';
     }
   };
   zone.addEventListener('touchend', endStick);
   zone.addEventListener('touchcancel', endStick);
+
+  // every touch button doubles as "close whatever overlay is up and resume"
+  const closeOverlays = () => { G.unlockPanel = false; G.mapOverlay = false; setPaused(false); };
 
   const dirVec = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
   document.querySelectorAll('.fire-btn').forEach(btn => {
     const d = btn.dataset.dir;
     btn.addEventListener('touchstart', e => {
       e.preventDefault();
-      if (G.paused) { G.unlockPanel = false; setPaused(false); return; }
+      if (G.paused) { closeOverlays(); return; }
       touch.fire = dirVec[d];
       if (G.state !== 'play') confirmScreen();
     }, { passive: false });
@@ -408,12 +445,26 @@ if (IS_TOUCH) {
     document.getElementById(id).addEventListener('touchstart', e => {
       e.preventDefault();
       SFX.unlock();
-      if (G.paused) { G.unlockPanel = false; setPaused(false); return; }
+      if (G.paused) { closeOverlays(); return; }
       if (G.state === 'play') fn();
     }, { passive: false });
   };
   bindAction('btn-bomb', placeBomb);
   bindAction('btn-item', useActiveItem);
+
+  // top-left pair: P and I have no keyboard on a phone
+  const bindTap = (id, fn) => {
+    document.getElementById(id).addEventListener('touchstart', e => {
+      e.preventDefault();
+      SFX.unlock();
+      fn();
+    }, { passive: false });
+  };
+  bindTap('btn-pause', () => {
+    if (G.paused) closeOverlays();
+    else setPaused(true);
+  });
+  bindTap('btn-codex', toggleCodex);
 })();
 
 // ---------------- meta progress plumbing ----------------

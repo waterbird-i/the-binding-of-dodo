@@ -7,7 +7,10 @@ html, body {
   font-family:"Trebuchet MS", "PingFang SC", sans-serif;
 }
 #wrap {
-  position:fixed; inset:0;
+  position:fixed; left:0; top:0; width:100%;
+  /* svh = 工具栏展开后的可视高度：iOS Safari 的 100vh 比实际能看到的高，
+     直接用会把画面底部（暂停提示、文档链接）顶到屏幕外面去 */
+  height:100vh; height:100svh;
   display:flex; align-items:center; justify-content:center;
 }
 canvas {
@@ -15,67 +18,126 @@ canvas {
   /* fill the viewport while keeping the 960:576 (5:3) aspect ratio */
   width:min(100vw, calc(100vh * 5 / 3));
   height:min(100vh, calc(100vw * 3 / 5));
+  width:min(100vw, calc(100svh * 5 / 3));
+  height:min(100svh, calc(100vw * 3 / 5));
   box-shadow:0 0 80px rgba(0,0,0,.9);
 }
-#touch-ui { position:fixed; inset:0; pointer-events:none; z-index:10; }
+#touch-ui {
+  position:fixed; left:0; top:0; width:100%;
+  height:100vh; height:100svh;
+  pointer-events:none; z-index:10;
+  /* 控件尺寸跟着屏幕短边缩放：小屏手机上按钮不会把画面挤没 */
+  --ctl:clamp(30px, 12vh, 56px);
+  --ctl:clamp(30px, 12svh, 56px);
+  --knob:calc(var(--ctl) * .84);
+  --stick:calc(var(--ctl) * 2);
+  --corner:clamp(30px, 9vh, 42px);
+  --corner:clamp(30px, 9svh, 42px);
+}
 #touch-ui.hidden { display:none; }
 #stick-zone {
   position:absolute; left:0; bottom:0; width:45%; height:60%;
   pointer-events:auto;
 }
-/* apple-style liquid glass shared by every floating touch control */
+/* 石板质感：暗底 + 羊皮纸描边，半透明，脚下的地板和弹幕都还看得见 */
 #stick-base, #stick-knob, .fire-btn, .action-btn {
-  background:rgba(255,255,255,.12);
-  -webkit-backdrop-filter:blur(16px) saturate(170%);
-  backdrop-filter:blur(16px) saturate(170%);
-  border:1px solid rgba(255,255,255,.28);
-  box-shadow:0 6px 22px rgba(0,0,0,.35), inset 0 1px 1px rgba(255,255,255,.32);
+  background:rgba(16,11,7,.36);
+  border:2px solid rgba(232,220,192,.3);
+  box-shadow:0 3px 10px rgba(0,0,0,.45), inset 0 0 12px rgba(0,0,0,.3);
 }
 #stick-base {
-  position:absolute; left:60px; bottom:calc(70px + env(safe-area-inset-bottom, 0px));
-  width:120px; height:120px; border-radius:50%;
+  position:absolute;
+  left:calc(var(--ctl) * .8);
+  bottom:calc(var(--ctl) * 1.1 + env(safe-area-inset-bottom, 0px));
+  width:var(--stick); height:var(--stick); border-radius:50%;
 }
 #stick-knob {
-  position:absolute; left:35px; top:35px;
-  width:50px; height:50px; border-radius:50%;
-  background:rgba(255,255,255,.34);
+  position:absolute; left:50%; top:50%;
+  width:var(--knob); height:var(--knob);
+  margin:calc(var(--knob) / -2) 0 0 calc(var(--knob) / -2);
+  border-radius:50%;
+  background:rgba(232,220,192,.2);
 }
 #fire-pad {
   position:absolute;
-  right:calc(36px + env(safe-area-inset-right, 0px));
-  bottom:calc(46px + env(safe-area-inset-bottom, 0px));
-  width:180px; height:180px; pointer-events:auto;
+  right:calc(var(--ctl) * .6 + env(safe-area-inset-right, 0px));
+  bottom:calc(var(--ctl) * .8 + env(safe-area-inset-bottom, 0px));
+  pointer-events:auto;
   display:grid;
   grid-template-areas:". up ." "left . right" ". down .";
-  grid-template-columns:60px 60px 60px;
-  grid-template-rows:60px 60px 60px;
+  grid-template-columns:repeat(3, var(--ctl));
+  grid-template-rows:repeat(3, var(--ctl));
 }
 .fire-btn {
+  position:relative;
   border-radius:50%;
-  color:rgba(255,255,255,.85);
-  font-size:20px;
   -webkit-user-select:none; user-select:none;
   touch-action:none;
 }
-.fire-btn:active, .action-btn:active { background:rgba(255,255,255,.3); }
+/* 三角形由 clip-path 裁出，不依赖字体：手机上 ◀ / ▶ 会被 emoji 字体接走 */
+.fire-btn::before {
+  content:'';
+  position:absolute; left:50%; top:50%;
+  width:calc(var(--ctl) * .4); height:calc(var(--ctl) * .4);
+  transform:translate(-50%, -50%);
+  background:rgba(236,224,196,.82);
+}
+/* 按下时亮成 HUD 那种金色，和画面里的高亮同一套色 */
+.fire-btn:active, .action-btn:active {
+  background:rgba(244,208,63,.26);
+  border-color:rgba(244,208,63,.72);
+}
 .fire-btn[data-dir="up"]{grid-area:up}
 .fire-btn[data-dir="down"]{grid-area:down}
 .fire-btn[data-dir="left"]{grid-area:left}
 .fire-btn[data-dir="right"]{grid-area:right}
+.fire-btn[data-dir="up"]::before{clip-path:polygon(50% 8%, 96% 92%, 4% 92%)}
+.fire-btn[data-dir="down"]::before{clip-path:polygon(4% 8%, 96% 8%, 50% 92%)}
+.fire-btn[data-dir="left"]::before{clip-path:polygon(92% 4%, 92% 96%, 8% 50%)}
+.fire-btn[data-dir="right"]::before{clip-path:polygon(8% 4%, 8% 96%, 92% 50%)}
 #action-pad {
   position:absolute;
-  right:calc(244px + env(safe-area-inset-right, 0px));
-  bottom:calc(56px + env(safe-area-inset-bottom, 0px));
-  display:flex; flex-direction:column; gap:16px;
+  right:calc(var(--ctl) * 3.9 + env(safe-area-inset-right, 0px));
+  bottom:calc(var(--ctl) * 1.1 + env(safe-area-inset-bottom, 0px));
+  display:flex; flex-direction:column; gap:calc(var(--ctl) * .3);
   pointer-events:auto;
 }
 .action-btn {
-  width:62px; height:62px; border-radius:50%;
-  color:rgba(255,255,255,.88);
-  font-size:14px; font-weight:bold; letter-spacing:1px;
+  width:var(--ctl); height:var(--ctl); border-radius:50%;
+  color:rgba(236,224,196,.9);
+  font:bold calc(var(--ctl) * .3)/1 Georgia, "PingFang SC", serif;
   -webkit-user-select:none; user-select:none;
   touch-action:none;
 }
+/* 暂停 / 图鉴：左上角的暗色石牌，不透明、描边收边，跟 HUD 的道具框一个路子 */
+#top-pad {
+  position:absolute;
+  left:calc(10px + env(safe-area-inset-left, 0px));
+  top:calc(8px + env(safe-area-inset-top, 0px));
+  display:flex; gap:8px;
+  pointer-events:auto;
+}
+.corner-btn {
+  width:var(--corner); height:var(--corner);
+  display:flex; align-items:center; justify-content:center;
+  border-radius:7px;
+  background:#17100b;
+  border:2px solid rgba(232,220,192,.5);
+  box-shadow:0 2px 8px rgba(0,0,0,.6);
+  color:#e8dcc0;
+  -webkit-user-select:none; user-select:none;
+  touch-action:none;
+}
+.corner-btn:active { background:#2b1e12; border-color:#f4d03f; color:#f4d03f; }
+.corner-btn svg { width:60%; height:60%; fill:currentColor; }
+/* 暂停时图标换成继续箭头 */
+.corner-btn .i-play { display:none; }
+#touch-ui.overlay .corner-btn .i-pause { display:none; }
+#touch-ui.overlay .corner-btn .i-play { display:initial; }
+/* 暂停 / 图鉴 / 全图 打开时收起摇杆和射击键，免得压住面板 */
+#touch-ui.overlay #stick-zone,
+#touch-ui.overlay #fire-pad,
+#touch-ui.overlay #action-pad { display:none; }
 
 /* phones are landscape-only: portrait shows a fullscreen rotate hint */
 #rotate-hint { display:none; }

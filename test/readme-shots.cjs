@@ -16,6 +16,19 @@ const OUT = path.join(ROOT, 'screenshots');
 const FRAMES = path.join(ROOT, '.playtest', 'gif-frames');
 const WANT_GIF = process.argv.includes('--gif');
 
+// 解锁全部角色与图鉴条目，标题环形选人才好看
+const metaInit = () => {
+  localStorage.setItem('dodo_meta_v1', JSON.stringify({
+    totals: { kills: 641, deaths: 31, wins: 2 },
+    unlocked: {
+      kings_mark: true, godhead: true, quad_feather: true, glass_cannon: true,
+      one_up: true, dead_cat: true, char_rage: true, char_dark: true,
+      char_lost: true, char_gambler: true,
+    },
+    selChar: 'dodo',
+  }));
+};
+
 (async () => {
   fs.mkdirSync(OUT, { recursive: true });
   const pw = loadPlaywright();
@@ -25,18 +38,7 @@ const WANT_GIF = process.argv.includes('--gif');
     viewport: { width: 1100, height: 660 },
     deviceScaleFactor: 2,
   });
-  // 解锁全部角色与图鉴条目，标题环形选人才好看
-  await context.addInitScript(() => {
-    localStorage.setItem('dodo_meta_v1', JSON.stringify({
-      totals: { kills: 641, deaths: 31, wins: 2 },
-      unlocked: {
-        kings_mark: true, godhead: true, quad_feather: true, glass_cannon: true,
-        one_up: true, dead_cat: true, char_rage: true, char_dark: true,
-        char_lost: true, char_gambler: true,
-      },
-      selChar: 'dodo',
-    }));
-  });
+  await context.addInitScript(metaInit);
   const page = await context.newPage();
   page.on('pageerror', e => console.error('PAGEERROR', e.message));
   await page.goto(INDEX_URL);
@@ -219,8 +221,8 @@ const WANT_GIF = process.argv.includes('--gif');
     G.floorNum = 10; loadFloor();
     for (let i = 0; i < 30; i++) await frame();
   });
-  await shot('08-sheol.png');
-  console.log('08-sheol');
+  await shot('08-cathedral.png');
+  console.log('08-cathedral');
 
   // --------------------------------------------- 09 成型 build（飞行 + 激光）
   await page.evaluate(async () => {
@@ -272,6 +274,55 @@ const WANT_GIF = process.argv.includes('--gif');
   });
   await shot('10-death.png');
   console.log('10-death');
+
+  // ------------------------------------------ 11 / 12 移动端触控（含点开全图）
+  // 视口按「横屏手机减掉浏览器工具栏」取，正好是控件缩放到最小档的场景
+  {
+    const mob = await browser.newContext({
+      viewport: { width: 844, height: 330 },
+      deviceScaleFactor: 2, hasTouch: true, isMobile: true,
+    });
+    await mob.addInitScript(metaInit);
+    const mp = await mob.newPage();
+    mp.on('pageerror', e => console.error('PAGEERROR', e.message));
+    await mp.goto(INDEX_URL);
+    await mp.evaluate(async () => {
+      const frame = () => new Promise(r => requestAnimationFrame(r));
+      startRun();
+      G.floorIntro = null;
+      const p = G.player;
+      const d = ITEM_BY_ID['triple_feather'];
+      if (d) d.apply(p);
+      p.x = W / 2 - 140; p.y = H / 2 + 30;
+      G.enemies = [];
+      for (const [t, x, y] of [['gaper', W / 2 + 70, H / 2 - 40], ['fly', W / 2 + 160, H / 2 - 130],
+        ['spitter', W / 2 + 210, H / 2 + 30]]) {
+        const e = makeEnemy(t, x, y, 1);
+        e.spawnT = 0;
+        G.enemies.push(e);
+      }
+      fireStack.length = 0; fireStack.push('ArrowRight');
+      for (let i = 0; i < 34; i++) { p.hp = p.maxHp; p.invuln = 0; await frame(); }
+      fireStack.length = 0;
+      for (let i = 0; i < 4; i++) await frame();
+    });
+    await mp.screenshot({ path: path.join(OUT, '11-mobile.png') });
+    console.log('11-mobile');
+
+    // 点右上角小地图：展开本层全图、冻结对局、收起摇杆和射击键
+    await mp.evaluate(() => {
+      G.floor.rooms.forEach((r, i) => { r.seen = true; if (i % 4 !== 3) r.visited = true; });
+      G.room.visited = true;
+      const b = minimapBox(), r = canvas.getBoundingClientRect();
+      canvas.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true,
+        clientX: r.left + (b.x + b.w / 2) * (r.width / W),
+        clientY: r.top + (b.y + b.h / 2) * (r.height / H) }));
+    });
+    await mp.waitForTimeout(160);
+    await mp.screenshot({ path: path.join(OUT, '12-mobile-map.png') });
+    console.log('12-mobile-map');
+    await mob.close();
+  }
 
   // ================================================================= GIF 帧
   if (WANT_GIF) {

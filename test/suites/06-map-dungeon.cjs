@@ -53,6 +53,24 @@ module.exports = async ({ page, context, consoleErrors }) => {
   ok('按住 Tab 打开全图', tabKey.before === false && tabHeld === true);
   ok('松开 Tab 关闭全图', tabReleased === false);
 
+  // tapping the minimap is the touch route to the same overlay: it opens the
+  // map *and* freezes the run, and any further tap closes it
+  const tapMap = async (onMinimap) => page.evaluate(on => {
+    const b = minimapBox();
+    const r = canvas.getBoundingClientRect();
+    const cx = on ? b.x + b.w / 2 : W / 2, cy = on ? b.y + b.h / 2 : H / 2;
+    canvas.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true,
+      clientX: r.left + cx * (r.width / W), clientY: r.top + cy * (r.height / H) }));
+    return { map: G.mapOverlay, paused: G.paused };
+  }, onMinimap);
+  const tapOpen = await tapMap(true);
+  await frames(page, 3);
+  ok('点小地图打开全图', tapOpen.map === true);
+  ok('全图打开时冻结对局', tapOpen.paused === true);
+  const tapClose = await tapMap(false);
+  ok('再点一下关闭全图', tapClose.map === false);
+  ok('关闭全图后继续对局', tapClose.paused === false);
+
   // ---------------------------------------------------- mapping items
   section('地图道具');
   const mapItems = await page.evaluate(() => {
