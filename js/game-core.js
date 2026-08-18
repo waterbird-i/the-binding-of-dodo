@@ -71,6 +71,9 @@ const keys = {};
 const fireStack = [];    // latest-pressed arrow wins
 const FIRE_DIRS = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
 const touch = { moveX: 0, moveY: 0, fire: null };
+// fake-landscape flag: a portrait viewport plays the game rotated 90° (see
+// the touch controls section); every touch coordinate then needs remapping
+let rot90 = false;
 
 window.addEventListener('keydown', e => {
   // suppress browser defaults before the repeat early-return: holding Tab
@@ -207,9 +210,13 @@ function menuSelectChar(step) {
   menuRotateTo((G.charIdx + step + CHAR_DEFS.length) % CHAR_DEFS.length);
 }
 
-// canvas-space coordinates of a pointer event (the canvas is CSS-scaled)
+// canvas-space coordinates of a pointer event. The canvas is CSS-scaled, and
+// in fake-landscape mode (rot90) also rotated 90° clockwise: the canvas' own
+// top-left corner sits at the top-RIGHT of its bounding rect, game-x runs down
+// the screen and game-y runs toward the screen's left edge.
 function canvasXY(e) {
   const r = canvas.getBoundingClientRect();
+  if (rot90) return { x: (e.clientY - r.top) * (W / r.height), y: (r.right - e.clientX) * (H / r.width) };
   return { x: (e.clientX - r.left) * (W / r.width), y: (e.clientY - r.top) * (H / r.height) };
 }
 
@@ -361,57 +368,42 @@ if (IS_TOUCH) {
   const syncHudTop = () => {
     const c = canvas.getBoundingClientRect();
     const pad = document.getElementById('top-pad').getBoundingClientRect();
-    G.hudTop = c.height ? Math.max(0, (pad.bottom - c.top) * (H / c.height) + 6) : 0;
+    // in rot90 mode the canvas' game-y axis runs along the screen's x axis
+    const dispH = rot90 ? c.width : c.height;
+    const reach = rot90 ? (c.right - pad.left) : (pad.bottom - c.top);
+    G.hudTop = dispH ? Math.max(0, reach * (H / dispH) + 6) : 0;
   };
-  // The game is landscape-only on phones: portrait shows a fullscreen rotate
-  // hint and freezes the run underneath it. Orientation is decided in JS from
-  // several signals instead of a bare CSS media query — after a couple of
-  // quick flips iOS can leave the media query (and the viewport size behind
-  // it) stale, which kept the hint stuck on screen while already landscape.
-  const isPortrait = () => {
-    const so = screen.orientation;
-    if (so && so.type) return so.type.indexOf('portrait') === 0;
-    if (typeof window.orientation === 'number') return Math.abs(window.orientation) !== 90;
-    return window.innerHeight > window.innerWidth;
-  };
-  const syncOrientation = () => {
-    const portrait = isPortrait();
-    document.body.classList.toggle('portrait', portrait);
-    if (portrait) setPaused(true);
-    syncHudTop();   // rotating resizes the canvas, so hudTop moves with it
-  };
-  // rotate events fire before the viewport finishes updating (iOS lags by a
-  // few frames), so every trigger re-checks a few more times shortly after
-  let orientTimers = [];
-  const queueOrientSync = () => {
-    syncOrientation();
-    for (const t of orientTimers) clearTimeout(t);
-    orientTimers = [120, 300, 700].map(ms => setTimeout(syncOrientation, ms));
-  };
-  if (screen.orientation && screen.orientation.addEventListener)
-    screen.orientation.addEventListener('change', queueOrientSync);
-  window.addEventListener('orientationchange', queueOrientSync);
-  window.addEventListener('resize', queueOrientSync);
-  if (window.visualViewport) window.visualViewport.addEventListener('resize', queueOrientSync);
-  document.addEventListener('fullscreenchange', queueOrientSync);
-  queueOrientSync();
-  // best effort: fullscreen + landscape lock (Android; iOS has no lock API).
-  // No longer once-only — with OS auto-rotate switched off the programmatic
-  // lock is the only road back to landscape, so the rotate hint doubles as a
-  // tap target that re-tries the lock every time.
-  const tryLockLandscape = () => {
-    const el = document.documentElement;
-    if (el.requestFullscreen && screen.orientation && screen.orientation.lock) {
-      el.requestFullscreen()
-        .then(() => screen.orientation.lock('landscape'))
-        .catch(() => {});
+  // Phones play in landscape, but plenty of mobile browsers never rotate the
+  // viewport: in-app webviews (如流 etc.) are usually portrait-locked, and iOS
+  // users often keep the Control Center orientation lock on. A rotate hint
+  // dead-ends there — so a portrait viewport instead gets the whole game
+  // rotated 90° via CSS (body.rot90) and plays in fake landscape. Touch
+  // coordinates are mapped back in canvasXY and the stick handler.
+  const syncRot = () => {
+    const flip = window.innerHeight > window.innerWidth;
+    if (flip !== rot90) {
+      rot90 = flip;
+      document.body.classList.toggle('rot90', flip);
     }
+    syncHudTop();
   };
-  window.addEventListener('touchend', tryLockLandscape, { once: true });
-  const rotateHint = document.getElementById('rotate-hint');
-  rotateHint.addEventListener('touchend', e => { e.preventDefault(); tryLockLandscape(); }, { passive: false });
-  if (screen.orientation && screen.orientation.lock)
-    rotateHint.querySelector('p').textContent = '请将手机横过来游玩（点一下屏幕也行）';
+  window.addEventListener('resize', syncRot);
+  window.addEventListener('orientationchange', syncRot);
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', syncRot);
+  setInterval(syncRot, 500);   // some webviews fire no resize at all on rotation
+  syncRot();
+  // still worth trying where allowed: a real fullscreen landscape beats the
+  // fake one (guarded — webviews reject this in creative ways)
+  window.addEventListener('touchend', () => {
+    try {
+      const el = document.documentElement;
+      if (el.requestFullscreen && screen.orientation && screen.orientation.lock) {
+        el.requestFullscreen()
+          .then(() => screen.orientation.lock('landscape'))
+          .catch(() => {});
+      }
+    } catch (err) { /* some webviews throw synchronously */ }
+  }, { once: true });
 }
 (function setupTouch() {
   const zone = document.getElementById('stick-zone');
@@ -427,8 +419,12 @@ if (IS_TOUCH) {
     stickId = t.identifier;
     cx = t.clientX; cy = t.clientY;
     const zr = zone.getBoundingClientRect(), half = base.offsetWidth / 2;
-    base.style.left = (cx - half - zr.left) + 'px';
-    base.style.top = (cy - half - zr.top) + 'px';
+    // zone-local coords: the zone rotates with the UI in rot90 mode, so a
+    // viewport point maps into it through the same 90° flip as canvasXY
+    const lx = rot90 ? (cy - zr.top) : (cx - zr.left);
+    const ly = rot90 ? (zr.right - cx) : (cy - zr.top);
+    base.style.left = (lx - half) + 'px';
+    base.style.top = (ly - half) + 'px';
     base.style.bottom = 'auto';
   }, { passive: false });
   zone.addEventListener('touchmove', e => {
@@ -436,6 +432,7 @@ if (IS_TOUCH) {
     for (const t of e.changedTouches) {
       if (t.identifier !== stickId) continue;
       let dx = t.clientX - cx, dy = t.clientY - cy;
+      if (rot90) { const vx = dx; dx = dy; dy = -vx; }   // viewport → rotated-UI axes
       const d = Math.hypot(dx, dy);
       const max = maxTravel();
       if (d > max) { dx *= max / d; dy *= max / d; }

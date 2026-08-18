@@ -139,23 +139,28 @@ canvas {
 #touch-ui.overlay #fire-pad,
 #touch-ui.overlay #action-pad { display:none; }
 
-/* phones are landscape-only: portrait shows a fullscreen rotate hint.
-   body.portrait is set from JS (multi-signal orientation detection) — the raw
-   (orientation) media query can go stale on iOS after a few quick flips */
-#rotate-hint { display:none; }
-body.touch.portrait #rotate-hint {
-  position:fixed; inset:0; z-index:30;
-  display:flex; flex-direction:column; align-items:center; justify-content:center;
-  gap:30px;
-  background:rgba(8,5,3,.96);
-  color:#e8dcc0; font-size:18px; letter-spacing:3px;
+/* phones are landscape-only, but plenty of mobile browsers never rotate the
+   viewport (portrait-locked in-app webviews, iOS orientation lock). So a
+   portrait viewport plays in fake landscape instead: body.rot90 (set from JS)
+   rotates the whole stage 90° and swaps every viewport-derived length.
+   Touch coordinates are mapped back in js/game-core.js. */
+body.rot90 #wrap {
+  width:100vh; width:100svh;
+  height:100vw;
+  transform:rotate(90deg) translateY(-100%);
+  transform-origin:top left;
 }
-#rotate-phone {
-  width:44px; height:78px; border-radius:9px;
-  border:3px solid #e8dcc0;
-  animation:rotate-phone 1.8s ease-in-out infinite;
+body.rot90 canvas {
+  width:min(100vh, calc(100vw * 5 / 3));
+  height:min(100vw, calc(100vh * 3 / 5));
+  width:min(100svh, calc(100vw * 5 / 3));
+  height:min(100vw, calc(100svh * 3 / 5));
 }
-@keyframes rotate-phone {
-  0%, 20% { transform:rotate(0deg); }
-  55%, 100% { transform:rotate(90deg); }
+/* #touch-ui is position:fixed, but a transformed ancestor becomes its
+   containing block, so it rotates along with #wrap; only its lengths need
+   swapping (control size follows the screen's short edge = vw in portrait) */
+body.rot90 #touch-ui {
+  height:100vw;
+  --ctl:clamp(30px, 12vw, 56px);
+  --corner:clamp(30px, 9vw, 42px);
 }

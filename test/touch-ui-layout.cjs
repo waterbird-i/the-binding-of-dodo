@@ -49,8 +49,8 @@ async function layout() {
   section('触屏 UI 可见性');
   eq('#touch-ui 已亮出（hidden 类被移除）',
     await page.$eval('#touch-ui', el => el.classList.contains('hidden')), false);
-  eq('横屏下不显示旋转提示',
-    await page.$eval('#rotate-hint', el => getComputedStyle(el).display), 'none');
+  eq('横屏下不启用 rot90 假横屏',
+    await page.$eval('body', el => el.classList.contains('rot90')), false);
 
   section('左上角 暂停/图鉴');
   // --corner:clamp(30px, 9vh, 42px)；375 高时 9vh=33.75
@@ -91,19 +91,45 @@ async function layout() {
   const canvas = await box('#game');
   ok('画布仍占满视口高', Math.abs(canvas.h - vh) < 2, JSON.stringify(canvas));
 
-  section('横竖屏往返');
-  // 回归：旋转提示曾在 横→竖→横 往返后卡住（纯 CSS 媒体查询在 iOS 上会失灵，
-  // 现在由 JS 多信号判断并挂 body.portrait 类驱动）。往返三次逐次断言。
-  const hintShown = () =>
-    page.$eval('#rotate-hint', el => getComputedStyle(el).display !== 'none');
+  section('竖屏假横屏（rot90）');
+  // 竖屏视口不再弹转屏提示（App 内置浏览器锁死竖屏时那是条死路），而是把
+  // 整个游戏旋转 90° 直接玩。往返三次断言开关状态与画布铺法。
+  const rotOn = () => page.$eval('body', el => el.classList.contains('rot90'));
   for (let i = 1; i <= 3; i++) {
     await page.setViewportSize({ width: 375, height: 812 });
-    await page.waitForTimeout(250);
-    ok('第' + i + '次竖屏：出现旋转提示', await hintShown());
+    await page.waitForTimeout(650);
+    ok('第' + i + '次竖屏：启用 rot90', await rotOn());
+    const cb = await box('#game');
+    ok('第' + i + '次竖屏：画布随旋转竖向铺开', cb.h > cb.w, JSON.stringify(cb));
     await page.setViewportSize({ width: 812, height: 375 });
-    await page.waitForTimeout(250);
-    ok('第' + i + '次转回横屏：提示消失', !(await hintShown()));
+    await page.waitForTimeout(650);
+    ok('第' + i + '次转回横屏：rot90 关闭', !(await rotOn()));
   }
+
+  section('rot90 触摸坐标映射');
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.waitForTimeout(650);
+  // 旋转后画布中央 ≈ 视口 (187, 406)：菜单确认，对局应当开场
+  await page.touchscreen.tap(187, 406);
+  await page.waitForTimeout(300);
+  eq('旋转态下点画布中央可开局', await page.evaluate(() => G.state), 'play');
+  // 摇杆区旋转后落在视口左上；向"视口下方"划应映射为游戏里向右移动
+  const cdp = await context.newCDPSession(page);
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart',
+    touchPoints: [{ x: 90, y: 150, id: 1 }] });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove',
+    touchPoints: [{ x: 90, y: 210, id: 1 }] });
+  await page.waitForTimeout(100);
+  const mv = await page.evaluate(() => ({ x: touch.moveX, y: touch.moveY }));
+  ok('旋转态摇杆：视口向下划 = 游戏向右', mv.x > 0.5 && Math.abs(mv.y) < 0.3,
+    JSON.stringify(mv));
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  // tap 会触发游戏那个一次性的 requestFullscreen，先退出再恢复视口
+  await page.evaluate(() =>
+    document.fullscreenElement ? document.exitFullscreen().catch(() => {}) : null);
+  await page.waitForTimeout(300);
+  await page.setViewportSize({ width: 812, height: 375 });
+  await page.waitForTimeout(650);
 
   await page.screenshot({ path: '/tmp/touch-ui-layout.png' });
   console.log('screenshot: /tmp/touch-ui-layout.png');

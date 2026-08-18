@@ -15,7 +15,8 @@ module.exports = async ({ page, context, consoleErrors }) => {
   ok('js 里没有 import/export（file:// 下不会被 CORS 拦）', esm.length === 0, esm.join(','));
   ok('触控 UI 带炸弹 / 主动道具按钮', /btn-bomb/.test(html) && /btn-item/.test(html));
   ok('触控 UI 带暂停 / 图鉴按钮', /btn-pause/.test(html) && /btn-codex/.test(html));
-  ok('页面带竖屏横放提示层', /rotate-hint/.test(html));
+  ok('竖屏 fake-landscape 样式已内置',
+    /rot90/.test(fs.readFileSync(path.join(ROOT, 'style.css'), 'utf8')));
   ok('file:// 直接打开即可运行', await page.evaluate(() => location.protocol === 'file:' && typeof G === 'object'));
 
   // ------------------------------------------------------------- title / boot
