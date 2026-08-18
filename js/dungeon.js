@@ -2,11 +2,11 @@
 // ============ dungeon / floor generation ============
 
 // kinds without enemies waiting behind the door start cleared (doors open)
-const PEACEFUL_KINDS = ['start', 'treasure', 'curse', 'challenge', 'secret'];
+const PEACEFUL_KINDS = ['start', 'treasure', 'curse', 'challenge', 'secret', 'sacrifice', 'devil'];
 
 function makeRoom(gx, gy, kind) {
   return {
-    gx, gy, kind,                    // start | normal | boss | treasure | shop | curse | challenge | miniboss | secret
+    gx, gy, kind,                    // start | normal | boss | treasure | shop | curse | challenge | miniboss | secret | sacrifice | devil
     seed: randi(1, 1e9),
     visited: false,
     seen: false,                     // shows on minimap as unexplored neighbor
@@ -94,7 +94,7 @@ function linkHidden(a, b) {
 }
 
 // Random-walk floor layout: 5-8 rooms + boss room + treasure room
-function generateFloor(depth) {
+function generateFloor(depth, hard) {
   const byKey = new Map();
   const key = (x, y) => x + ',' + y;
   const rooms = [];
@@ -169,10 +169,24 @@ function generateFloor(depth) {
     if (treasureRoom) break;
   }
   if (treasureRoom) {
-    // a quarter of treasure rooms offer a spacebar item instead of a passive
-    const active = chance(0.25);
-    treasureRoom.pedestals.push({ x: W / 2, y: H / 2, def: null, anim: rand(10), taken: false,
-      pendingRandom: !active, pendingActive: active });
+    if (!hard && chance(0.35)) {
+      // choice pair: two treasures share one fate — take one, the other
+      // crumbles to dust (Isaac's alt-path "options" pedestals)
+      for (const dx of [-75, 75]) {
+        treasureRoom.pedestals.push({ x: W / 2 + dx, y: H / 2, def: null, anim: rand(10), taken: false,
+          pendingRandom: true, pool: 'treasure', choiceGroup: 1 });
+      }
+    } else {
+      // a quarter of treasure rooms offer a spacebar item instead of a passive
+      const active = chance(0.25);
+      treasureRoom.pedestals.push({ x: W / 2 - (hard ? 70 : 0), y: H / 2, def: null, anim: rand(10), taken: false,
+        pendingRandom: !active, pendingActive: active, pool: 'treasure' });
+      // the risky route pays double treasure
+      if (hard) {
+        treasureRoom.pedestals.push({ x: W / 2 + 70, y: H / 2, def: null, anim: rand(10), taken: false,
+          pendingRandom: true, pool: 'treasure' });
+      }
+    }
   }
 
   // shop room: also attached near the start; wares are stocked on first
@@ -182,7 +196,8 @@ function generateFloor(depth) {
   }
 
   // random-anchor pool for the risk rooms below
-  const shuffled = () => [...rooms].filter(r => r.kind === 'normal').sort(() => Math.random() - 0.5);
+  // rng() (not Math.random) so seeded runs shuffle the same way every time
+  const shuffled = () => [...rooms].filter(r => r.kind === 'normal').sort(() => rng() - 0.5);
 
   // curse room (60%): spiked door taxes half a heart on the way in and out
   if (chance(0.6)) {
@@ -201,6 +216,17 @@ function generateFloor(depth) {
       const room = attachSpecial(cand, 'challenge');
       if (!room) continue;
       room.pedestals.push({ x: W / 2, y: H / 2, def: null, anim: rand(10), taken: false, pendingRandom: true });
+      break;
+    }
+  }
+
+  // sacrifice room (45%): a spike bed in the center — bleed on it repeatedly
+  // and the altar pays out on an escalating table (see sacrificeReward)
+  if (chance(0.45)) {
+    for (const cand of shuffled()) {
+      const room = attachSpecial(cand, 'sacrifice');
+      if (!room) continue;
+      room.sacrifices = 0;
       break;
     }
   }
@@ -242,6 +268,7 @@ function generateFloor(depth) {
       }
       if (chance(0.6)) secret.pickups.push({ kind: 'bomb', x: W / 2 - 90, y: H / 2 - 20, anim: rand(10), taken: false });
       if (chance(0.5)) secret.pickups.push({ kind: 'battery', x: W / 2 + 90, y: H / 2 - 20, anim: rand(10), taken: false });
+      if (chance(0.3)) secret.pickups.push({ kind: 'soulheart', x: W / 2, y: H / 2 + 110, anim: rand(10), taken: false });
       if (chance(0.35)) {
         const active = chance(0.5);
         secret.pedestals.push({ x: W / 2, y: H / 2 - 60, def: null, anim: rand(10), taken: false,
@@ -253,7 +280,20 @@ function generateFloor(depth) {
   for (const room of rooms) populateRocks(room);
 
   start.visited = true;
-  return { rooms, start, depth, name: FLOOR_NAMES[depth - 1] || 'BASEMENT' };
+  return { rooms, start, depth, hard: !!hard, name: FLOOR_NAMES[depth - 1] || 'BASEMENT' };
+}
+
+// attach a new special room to an already-generated floor in a free cell
+// next to `anchor` — used by the devil deal that appears after a boss dies
+function attachRoomToFloor(floor, anchor, kind) {
+  const occupied = new Set(floor.rooms.map(r => r.gx + ',' + r.gy));
+  const options = DIRS.filter(d => !occupied.has((anchor.gx + d.dx) + ',' + (anchor.gy + d.dy)));
+  if (!options.length) return null;
+  const d = pick(options);
+  const room = makeRoom(anchor.gx + d.dx, anchor.gy + d.dy, kind);
+  floor.rooms.push(room);
+  linkRooms(anchor, room);
+  return room;
 }
 
 // re-run mapping-item reveals against the current floor; called on floor
@@ -261,7 +301,7 @@ function generateFloor(depth) {
 function revealFloorMap() {
   if (typeof G === 'undefined' || !G.floor || !G.player) return;
   const p = G.player;
-  const SPECIAL = { boss: 1, treasure: 1, shop: 1, curse: 1, challenge: 1 };
+  const SPECIAL = { boss: 1, treasure: 1, shop: 1, curse: 1, challenge: 1, sacrifice: 1 };
   for (const r of G.floor.rooms) {
     if (p.treasureMap && r.kind !== 'secret') r.seen = true;
     if (p.compass && SPECIAL[r.kind]) r.seen = true;
@@ -276,8 +316,8 @@ function revealFloorMap() {
 function roomLeftoverGlyph(r) {
   if (r.pedestals.some(pd => !pd.taken && (pd.def || pd.pendingRandom || pd.pendingActive))) return 'item';
   const kinds = new Set(r.pickups.filter(pk => !pk.taken).map(pk => pk.kind));
-  for (const k of ['chest', 'battery', 'bomb', 'heart', 'halfheart', 'coin']) {
-    if (kinds.has(k)) return k === 'halfheart' ? 'heart' : k;
+  for (const k of ['chest', 'battery', 'bomb', 'heart', 'halfheart', 'soulheart', 'coin']) {
+    if (kinds.has(k)) return (k === 'halfheart' || k === 'soulheart') ? 'heart' : k;
   }
   return null;
 }
@@ -339,6 +379,26 @@ function drawRoomGlyph(g, r, cx, cy, s) {
     g.beginPath(); g.moveTo(-3, 1); g.lineTo(3, 1); g.stroke();
     g.strokeStyle = '#8a7454';
     g.beginPath(); g.moveTo(0, 3.5); g.lineTo(0, 5.5); g.stroke();
+  } else if (r.kind === 'sacrifice') {
+    // three spikes with a blood drop hovering above
+    g.fillStyle = '#b8ab92';
+    g.beginPath();
+    for (const sx of [-4, 0, 4]) {
+      g.moveTo(sx - 2, 5); g.lineTo(sx, -1); g.lineTo(sx + 2, 5);
+    }
+    g.closePath(); g.fill();
+    g.fillStyle = '#a3271b';
+    g.beginPath(); g.arc(0, -4.5, 2.2, 0, TAU); g.fill();
+  } else if (r.kind === 'devil') {
+    // black goat head with red eyes
+    g.fillStyle = '#1c1210';
+    g.beginPath(); g.arc(0, 0.5, 4.2, 0, TAU); g.fill();
+    g.beginPath();
+    g.moveTo(-3.4, -1.5); g.lineTo(-5, -5.5); g.lineTo(-1.6, -3.4);
+    g.moveTo(3.4, -1.5); g.lineTo(5, -5.5); g.lineTo(1.6, -3.4);
+    g.fill();
+    g.fillStyle = '#e8452f';
+    g.beginPath(); g.arc(-1.6, 0, 0.9, 0, TAU); g.arc(1.6, 0, 0.9, 0, TAU); g.fill();
   } else if (r.kind === 'miniboss' && r.visited) {
     skull('#8b8375');
   } else {

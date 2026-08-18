@@ -245,6 +245,78 @@ const ITEM_DEFS = [
 // Spacebar items. Each carries its own charge cost (in bars); charge comes
 // from clearing rooms (+1) or picking up batteries (+1). Picked up fully
 // charged, Isaac style. `use` runs against the live game state.
+// ============ item pools ============
+// Isaac-style split pools: treasure rooms roll the default pool, shops roll
+// utility, devil deals roll the trade-off/evil items. Anything untagged
+// belongs to the treasure pool. Tagging happens here (not inline on 90 defs)
+// so a def's pool is easy to audit at a glance.
+const ITEM_POOL_TAGS = {
+  devil: ['devil_horn', 'demon_pact', 'dark_book', 'glass_cannon', 'ipecac',
+    'dead_cat', 'brimstone', 'thorn_crown', 'blood_tear', 'skull_mask',
+    'night_spirit', 'shadow_cloak'],
+  shop: ['golden_key', 'lucky_penny', 'lucky_clover', 'star_magnet', 'magneto',
+    'bandage', 'poop_charm', 'holy_book', 'the_compass', 'treasure_map',
+    'blue_map', 'battery'],
+};
+// ============ transformation sets ============
+// Collect 3 items of one set and dodo mutates: looks change, stats jump.
+const ITEM_SET_TAGS = {
+  feather: ['triple_feather', 'quad_feather', 'twin_feather', 'splinter_shot',
+    'angel_wing', 'angel_plume', 'dodo_wings'],
+  devil: ['devil_horn', 'demon_pact', 'dark_book', 'glass_cannon', 'ipecac',
+    'dead_cat', 'brimstone', 'thorn_crown', 'blood_tear', 'night_spirit'],
+  mushroom: ['life_mushroom', 'mini_mush', 'one_up', 'poop_charm', 'rotten_meat'],
+};
+for (const [pool, ids] of Object.entries(ITEM_POOL_TAGS)) {
+  for (const id of ids) { const d = ITEM_DEFS.find(x => x.id === id); if (d) d.pool = pool; }
+}
+for (const [set, ids] of Object.entries(ITEM_SET_TAGS)) {
+  for (const id of ids) { const d = ITEM_DEFS.find(x => x.id === id); if (d) d.set = set; }
+}
+
+const TRANSFORM_DEFS = [
+  { id: 'tf_angel', set: 'feather', name: '羽翼圣者', desc: '集齐 3 件羽毛系 — 长出圣翼 头顶光环!',
+    apply(p) {
+      if (!p.flight) p.wingGrow = 1;
+      p.flight = true;
+      p.fireDelay *= 0.88;
+      p.appearance.hat = 'halo';
+      p.appearance.aura = 'rgba(244,224,140,0.3)';
+    } },
+  { id: 'tf_devil', set: 'devil', name: '恶魔化身', desc: '集齐 3 件恶魔系 — 头生尖角 攻击暴涨!',
+    apply(p) {
+      p.damage += 2.2;
+      p.appearance.hat = 'horns';
+      p.appearance.eyeColor = '#c9231a';
+      p.appearance.aura = 'rgba(140,20,16,0.4)';
+    } },
+  { id: 'tf_mushroom', set: 'mushroom', name: '蘑菇之王', desc: '集齐 3 件菌菇系 — 戴上菌盖 生命大涨!',
+    apply(p) {
+      p.maxHp += 4; p.hp = Math.min(p.maxHp, p.hp + 4);
+      p.tearSize += 1.5;
+      p.appearance.hat = 'mushcap';
+    } },
+];
+
+// called after every itemsTaken.push — fires each transformation once
+function checkTransformations(G, p) {
+  if (!p.transforms) p.transforms = {};
+  for (const tf of TRANSFORM_DEFS) {
+    if (p.transforms[tf.id]) continue;
+    const n = p.itemsTaken.filter(id => (ITEM_BY_ID[id] || {}).set === tf.set).length;
+    if (n < 3) continue;
+    p.transforms[tf.id] = true;
+    const hadFlight = p.flight;
+    tf.apply(p);
+    clampPlayerStats(p);
+    G.toast = { title: '转变 · ' + tf.name, desc: tf.desc, t: 3.4 };
+    if (!hadFlight && p.flight) spawnFeathers(G, p.x, p.y);
+    spawnSplash(G, p.x, p.y - 20, '#f4d03f');
+    G.shake = Math.max(G.shake, 6);
+    SFX.chest();
+  }
+}
+
 const ACTIVE_DEFS = [
   { id: 'act_tear_burst', name: '泪雨风暴', desc: '重创房间里的所有敌人!', icon: 'bigtear', tint: '#9fc6e8',
     active: true, cost: 2,
@@ -288,6 +360,37 @@ const ACTIVE_DEFS = [
       }
       SFX.pause(true);
     } },
+  // The D6: rerolls every untaken pedestal in the room within its own pool,
+  // so a devil deal rerolls into another devil deal (price kept), a treasure
+  // rerolls into another treasure. Shop wares stay put, Isaac-classic.
+  { id: 'act_d6', name: '六面骰', desc: '重摇本房间的道具!', icon: 'dice', tint: '#9fc6e8',
+    active: true, cost: 2,
+    use(G) {
+      const p = G.player;
+      const exclude = p.itemsTaken.slice();
+      let n = 0;
+      for (const ped of G.room.pedestals) {
+        if (ped.taken || !ped.def) continue;
+        if (ped.def.active) {
+          const others = ACTIVE_DEFS.filter(d => d.id !== ped.def.id && d.id !== 'act_d6');
+          ped.def = pick(others);
+        } else {
+          exclude.push(ped.def.id);
+          ped.def = randomItemDef(exclude, ped.pool);
+          exclude.push(ped.def.id);
+        }
+        ped.anim = rand(10);
+        spawnSplash(G, ped.x, ped.y - 22, '#9fc6e8');
+        n++;
+      }
+      if (n) {
+        G.toast = { title: '六面骰', desc: '命运重掷了 ' + n + ' 件道具!', t: 1.8 };
+        G.shake = Math.max(G.shake, 4);
+      } else {
+        G.toast = { title: '六面骰', desc: '这个房间没有可以重摇的道具…', t: 1.6 };
+      }
+      SFX.item();
+    } },
 ];
 const ACTIVE_BY_ID = {};
 for (const d of ACTIVE_DEFS) ACTIVE_BY_ID[d.id] = d;
@@ -308,19 +411,30 @@ function addActiveCharge(p, n) {
 const ITEM_BY_ID = {};
 for (const d of ITEM_DEFS) ITEM_BY_ID[d.id] = d;
 
-// prefer items the player hasn't collected yet, so a run keeps surprising
-function randomItemDef(exclude) {
-  const pool = ITEM_DEFS.filter(d => !exclude.includes(d.id));
-  return pool.length ? pick(pool) : pick(ITEM_DEFS);
+// defs belonging to a named pool ('treasure' is the untagged default)
+function poolDefs(pool) {
+  if (!pool || pool === 'any') return ITEM_DEFS;
+  return ITEM_DEFS.filter(d => (d.pool || 'treasure') === pool);
 }
 
-function spawnItemPedestal(room, x, y) {
+// prefer items the player hasn't collected yet, so a run keeps surprising;
+// pool narrows the roll to one pool, falling back to everything if drained
+function randomItemDef(exclude, pool) {
+  // meta-locked items (see js/meta.js) never enter a random pool until earned
+  const fresh = d => !exclude.includes(d.id) && !metaItemLocked(d.id);
+  let cand = poolDefs(pool).filter(fresh);
+  if (!cand.length) cand = ITEM_DEFS.filter(fresh);
+  return cand.length ? pick(cand) : pick(ITEM_DEFS);
+}
+
+function spawnItemPedestal(room, x, y, pool) {
   // clamp into floor area
   x = clamp(x, FLOOR_X + 40, FLOOR_X + FLOOR_W - 40);
   y = clamp(y, FLOOR_Y + 40, FLOOR_Y + FLOOR_H - 40);
   const exclude = (typeof G !== 'undefined' && G.player) ? G.player.itemsTaken : [];
   const spot = findFreeSpot(room, x, y);
-  room.pedestals.push({ x: spot.x, y: spot.y, def: randomItemDef(exclude), anim: rand(10), taken: false });
+  room.pedestals.push({ x: spot.x, y: spot.y, def: randomItemDef(exclude, pool),
+    pool: pool || null, anim: rand(10), taken: false });
 }
 
 // ============ shop ============
@@ -336,8 +450,9 @@ function stockShop(room, depth) {
   const wy = FLOOR_Y + FLOOR_H * 0.32;
   const exclude = (typeof G !== 'undefined' && G.player) ? G.player.itemsTaken.slice() : [];
   const defs = [];
-  for (let i = 0; i < 2; i++) {
-    const d = randomItemDef(exclude);
+  // first slot rolls the shop's own utility pool, second stays general
+  for (const pool of ['shop', 'treasure']) {
+    const d = randomItemDef(exclude, pool);
     exclude.push(d.id);
     defs.push(d);
   }
@@ -371,8 +486,26 @@ function resolvePedestals(room, p) {
       ped.def = pick(ACTIVE_DEFS);
       ped.pendingActive = false;
     } else if (ped.pendingRandom) {
-      ped.def = randomItemDef(p ? p.itemsTaken : []);
+      ped.def = randomItemDef(p ? p.itemsTaken : [], ped.pool);
       ped.pendingRandom = false;
     }
   }
+}
+
+// ============ devil deals ============
+// Devil pedestals are paid in hearts, not coins. Red heart containers go
+// first; a dodo too poor in containers can pay 3 soul hearts instead.
+function devilDealAfford(p, price) {
+  return p.maxHp - price * 2 >= 2 || p.soulHp >= 6;
+}
+function devilDealPay(p, price) {
+  if (p.maxHp - price * 2 >= 2) {
+    p.maxHp -= price * 2;
+    p.hp = Math.min(p.hp, p.maxHp);
+  } else {
+    p.soulHp -= 6;
+  }
+}
+function devilDealLabel(p, price) {
+  return p.maxHp - price * 2 >= 2 ? price + ' 颗红心上限' : '3 颗魂心';
 }
