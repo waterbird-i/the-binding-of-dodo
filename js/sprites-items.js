@@ -107,6 +107,30 @@ function drawPickup(g, p) {
     g.moveTo(1.5, -5); g.lineTo(-2.5, 1); g.lineTo(0, 1); g.lineTo(-1.5, 7); g.lineTo(2.5, 0.5); g.lineTo(0, 0.5);
     g.closePath(); g.fill();
     g.restore();
+  } else if (p.kind === 'soulflame') {
+    // 暗黑 dodo's reaped soul: a cold blue flame with a hot white core
+    g.save();
+    g.translate(p.x, p.y);
+    const fl = Math.sin(p.anim * 9) * 1.6;
+    g.fillStyle = '#5d7fd6';
+    g.strokeStyle = PAL.outline;
+    g.lineWidth = 3;
+    g.beginPath();
+    g.moveTo(0, -14 - fl);
+    g.quadraticCurveTo(9, -4, 7, 3);
+    g.quadraticCurveTo(6, 10, 0, 11);
+    g.quadraticCurveTo(-6, 10, -7, 3);
+    g.quadraticCurveTo(-9, -4, 0, -14 - fl);
+    g.closePath(); g.fill(); g.stroke();
+    g.fillStyle = '#cfe0ff';
+    g.beginPath();
+    g.moveTo(0, -6 - fl * 0.5);
+    g.quadraticCurveTo(4, 0, 3, 4);
+    g.quadraticCurveTo(2, 7, 0, 8);
+    g.quadraticCurveTo(-2, 7, -3, 4);
+    g.quadraticCurveTo(-4, 0, 0, -6 - fl * 0.5);
+    g.closePath(); g.fill();
+    g.restore();
   }
   g.restore();
 }

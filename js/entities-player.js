@@ -73,6 +73,8 @@ function makePlayer(charId) {
 
 // stat guard rails so stacked items can't break the game (Isaac clamps too)
 function clampPlayerStats(p) {
+  // 迷失 dodo lives on half a heart forever: hp-ups and soul hearts slide off
+  if (p.charId === 'lost') { p.maxHp = 1; p.hp = Math.min(p.hp, 1); p.soulHp = 0; }
   p.damage = clamp(p.damage, 0.5, 90);
   p.fireDelay = clamp(p.fireDelay, 0.08, 1.2);
   p.shotSpeed = clamp(p.shotSpeed, 180, 1000);
@@ -80,7 +82,7 @@ function clampPlayerStats(p) {
   p.moveSpeed = clamp(p.moveSpeed, 120, 560);
   p.tearSize = clamp(p.tearSize, 3, 26);
   p.multishot = clamp(p.multishot, 1, 9);
-  p.maxHp = clamp(p.maxHp, 2, 24);
+  p.maxHp = clamp(p.maxHp, p.charId === 'lost' ? 1 : 2, 24);
   p.hp = clamp(p.hp, 0, p.maxHp);
   p.crit = clamp(p.crit, 0, 0.85);
   p.orbitals = clamp(p.orbitals, 0, 6);
@@ -133,7 +135,7 @@ function spawnPlayerTears(G, dirX, dirY) {
       x: p.x + dirX * 12, y: p.y - 10 + dirY * 12,
       vx, vy,
       r: p.tearSize * (crit ? 1.35 : 1),
-      damage: p.damage * (crit ? p.critMul : 1),
+      damage: p.damage * rageDmgMul(p) * (crit ? p.critMul : 1),
       crit,
       traveled: 0,
       range: p.range,
@@ -151,11 +153,11 @@ function spawnPlayerTears(G, dirX, dirY) {
       distGrow: p.distGrow,
       distShrink: p.distShrink,
       hitSet: (p.piercing || p.bounce) ? new Set() : null,
-      color: crit ? '#ffe9a8' : p.appearance.tearColor,
+      color: crit ? '#ffe9a8' : (rageBerserk(p) ? '#c9231a' : p.appearance.tearColor),
       dead: false,
     });
   }
-  p.fireCd = p.fireDelay;
+  p.fireCd = p.fireDelay * rageFireMul(p);
   p.blink = 0.12;                  // dodo blinks every time a tear leaves
   SFX.shoot();
 }
@@ -201,7 +203,7 @@ function fireBrimstone(G, dirX, dirY) {
     let a = base + (n === 1 ? 0 : (i - (n - 1) / 2) * spread);
     if (p.homing) a = bendTowardEnemy(G, p.x, p.y, a);
     const crit = p.crit > 0 && chance(p.crit);
-    const dmg = p.damage * 3.6 * dmgMul * inherentMul * (crit ? p.critMul : 1);
+    const dmg = p.damage * rageDmgMul(p) * 3.6 * dmgMul * inherentMul * (crit ? p.critMul : 1);
     const payload = {
       poison: p.poison, slow: p.slowOnHit, crit,
       distGrow: p.distGrow, distShrink: p.distShrink,
@@ -233,7 +235,7 @@ function fireBrimstone(G, dirX, dirY) {
     if (p.explosive > 0) explodeAt(G, endX, endY, p.explosive, p.damage, p.ipecac);
     if (p.split > 0) splitBeamEnd(G, p, endX, endY, a);
   }
-  p.fireCd = p.fireDelay * 1.8;
+  p.fireCd = p.fireDelay * rageFireMul(p) * 1.8;
   p.blink = 0.12;
   SFX.laser();
 }

@@ -45,6 +45,7 @@ function makeEnemy(type, x, y, depth = 1) {
 }
 
 function damageEnemy(G, e, dmg, kvx, kvy) {
+  if (e._hp0 === undefined) e._hp0 = e.hp;   // full hp at first blood, for the execute threshold
   e.hp -= dmg;
   e.flash = 0.08;
   SFX.hit();
@@ -54,6 +55,11 @@ function damageEnemy(G, e, dmg, kvx, kvy) {
     const kl = Math.hypot(kvx, kvy) || 1;
     e.knockX += (kvx / kl) * kn * 4;
     e.knockY += (kvy / kl) * kn * 4;
+  }
+  // 生气 dodo: enemies at death's door (15%) are executed outright
+  if (!e.dead && e.hp > 0 && !e.isBoss && G.player.charId === 'rage' && e.hp <= e._hp0 * 0.15) {
+    e.hp = 0;
+    spawnBlood(G, e.x, e.y, 18);
   }
   if (e.hp <= 0 && !e.dead) killEnemy(G, e);
 }
@@ -70,6 +76,8 @@ function killEnemy(G, e) {
   }
   e.dead = true;
   G.stats.kills++;
+  addRage(G.player, e.isBoss ? 0.35 : 0.09);
+  tryDropSoulflame(G.player, e);
   // lifetime kill counter feeds the threshold unlocks (生气 dodo / 1UP!)
   if (!G.devTainted) { META.totals.kills++; metaEvent('kill'); }
   // death hook: Boom Fly detonates, hurting everything nearby — you included
@@ -286,7 +294,8 @@ function updateEnemies(G, dt) {
 
     // contact damage
     if (!e.dead && (e.z || 0) < 24 && dist(e.x, e.y, p.x, p.y) < e.r + p.r - 2) {
-      if (p.contactDamage > 0) damageEnemy(G, e, p.contactDamage * dt * 6, e.x - p.x, e.y - p.y);
+      const cdm = p.contactDamage + (rageBerserk(p) ? 3 : 0);
+      if (cdm > 0) damageEnemy(G, e, cdm * dt * 6, e.x - p.x, e.y - p.y);
       hurtPlayer(G, e.touchDamage, e.x, e.y);
     }
   }
@@ -457,6 +466,7 @@ function hurtPlayer(G, dmg, fromX, fromY) {
   if (dmg > 0) {
     G.floorDamage = (G.floorDamage || 0) + dmg;
     if (G.room && G.room.kind === 'boss') G.bossFightHurt = true;
+    addRage(p, 0.4);
   }
   p.invuln = 1.1 + (p.invulnBonus || 0);
   p.hurtFlash = 0.35;
@@ -477,7 +487,7 @@ function resolvePlayerDeath(G) {
   if (p.extraLives > 0) {
     // 1-up style revive: back on your feet with half your hearts
     p.extraLives--;
-    p.hp = Math.max(2, Math.floor(p.maxHp / 2));
+    p.hp = Math.min(p.maxHp, Math.max(2, Math.floor(p.maxHp / 2)));
     p.invuln = 2.4;
     G.toast = { title: '死而复生', desc: '剩余复活次数 ' + p.extraLives, t: 2.4 };
     SFX.item();

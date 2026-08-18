@@ -3,6 +3,8 @@
 function startRun() {
   G.player = makePlayer(CHAR_DEFS[G.charIdx].id);
   G.newUnlocks = [];
+  G.unlockPopups = [];
+  G.unlockPanel = false;
   G.hardFloor = false;
   G.floorNum = 1;
   G.paused = false;
@@ -37,6 +39,10 @@ function loadFloor() {
     });
   }
   G.floorDamage = 0;   // an untouched floor unlocks 神之首 on the way down
+  // 赌徒 dodo: reroll this floor's fortune (seeded so runs stay reproducible)
+  if (G.player && G.player.charId === 'gambler') {
+    withRng(floorSeed(G.runSeed, G.floorNum, 4242), () => rollGamble(G.player));
+  }
   revealFloorMap();   // mapping items keep working on every new floor
   // brief location card: floor name + how deep into the run you are
   G.floorIntro = { name: FLOOR_NAMES[G.floorNum - 1] || 'BASEMENT', num: G.floorNum,
@@ -237,7 +243,7 @@ function onBossKilled(Gm, boss) {
   // odds, Isaac style.
   if (Gm.floorNum < FLOOR_COUNT && !room.devilSpawned) {
     room.devilSpawned = true;
-    if (chance(Gm.bossFightHurt ? 0.33 : 0.66)) {
+    if (Gm.player.charId === 'dark' || chance(Gm.bossFightHurt ? 0.33 : 0.66)) {
       const dr = attachRoomToFloor(Gm.floor, room, 'devil');
       if (dr) {
         dr.seen = true;

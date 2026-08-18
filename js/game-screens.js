@@ -26,69 +26,75 @@ function renderMenu() {
   ctx.fillText('dodo', W / 2, 232);
   ctx.restore();
 
-  // character select: the three dodos share one rig, so they all walk in place
+  // character ring, Isaac style: the picked dodo stands front and center,
+  // the other two wait behind on the ellipse
   G.menuDeny = Math.max(0, G.menuDeny - 1 / 60);
-  for (let i = 0; i < CHAR_DEFS.length; i++) {
-    const c = CHAR_DEFS[i];
-    const cx = MENU_CHAR_X(i), cy = MENU_CHAR_Y;
+  G.menuRot += (G.menuRotT - G.menuRot) * 0.14;
+  if (Math.abs(G.menuRotT - G.menuRot) < 0.002) G.menuRot = G.menuRotT;
+  const slots = CHAR_DEFS.map((c, i) => ({ c, i, pos: menuCharPos(i) }))
+    .sort((a, b) => a.pos.depth - b.pos.depth);   // paint back to front
+  for (const { c, i, pos } of slots) {
     const locked = charLocked(c);
     const selected = i === G.charIdx;
+    ctx.save();
+    ctx.translate(pos.x, pos.y);
+    ctx.scale(pos.scale, pos.scale);
+    ctx.globalAlpha = 0.42 + 0.58 * pos.depth;
     if (selected) {
-      ctx.save();
       ctx.strokeStyle = locked
         ? 'rgba(163,39,27,' + (0.5 + 0.3 * Math.sin(G.menuAnim * 6)) + ')'
         : 'rgba(244,208,63,' + (0.55 + 0.35 * Math.sin(G.menuAnim * 4)) + ')';
       ctx.lineWidth = 3.5;
-      ctx.beginPath(); ctx.ellipse(cx, cy + 30, 55, 17, 0, 0, TAU); ctx.stroke();
-      ctx.restore();
+      ctx.beginPath(); ctx.ellipse(0, 30, 55, 17, 0, 0, TAU); ctx.stroke();
     }
     const prev = makePlayer(c.id).appearance;
-    drawDodo(ctx, cx, cy, {
+    drawDodo(ctx, 0, 0, {
       walk: G.menuAnim * 11, moving: selected, aimX: 0, aimY: 0.3,
       headColor: locked ? '#332e29' : prev.headColor,
       eyeColor: locked ? '#1c1915' : prev.eyeColor,
       aura: locked ? null : prev.aura,
       brow: locked ? null : prev.brow,
     });
-    ctx.save();
-    ctx.textAlign = 'center';
-    ctx.font = 'bold 17px Georgia';
-    ctx.fillStyle = selected ? '#f4d03f' : 'rgba(232,220,192,0.75)';
-    ctx.fillText(locked ? '???' : c.name, cx, cy + 66);
-    ctx.font = '13px Trebuchet MS';
-    if (locked) {
-      const u = UNLOCK_DEFS.find(x => x.id === c.unlock);
-      const denied = selected && G.menuDeny > 0;
-      ctx.fillStyle = denied ? '#e8452f' : 'rgba(200,186,158,0.6)';
-      ctx.fillText('未解锁 · ' + (u ? u.how : '完成挑战'), cx, cy + 88);
-    } else {
-      ctx.fillStyle = 'rgba(200,186,158,0.7)';
-      ctx.fillText(c.desc, cx, cy + 88);
-    }
     ctx.restore();
   }
+
+  // the selected character's card sits under the ring; unlock conditions
+  // moved into the codex (P) so the menu only whispers that one exists
+  const sel = CHAR_DEFS[G.charIdx];
+  const selLocked = charLocked(sel);
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 19px Georgia';
+  ctx.fillStyle = selLocked ? 'rgba(200,186,158,0.8)' : '#f4d03f';
+  ctx.fillText(selLocked ? '???' : sel.name, W / 2, 418);
+  ctx.font = '14px Trebuchet MS';
+  if (selLocked) {
+    ctx.fillStyle = G.menuDeny > 0 ? '#e8452f' : 'rgba(200,186,158,0.6)';
+    ctx.fillText('未解锁　·　按 P 查看解锁条件', W / 2, 440);
+  } else {
+    ctx.fillStyle = 'rgba(200,186,158,0.7)';
+    ctx.fillText(sel.desc, W / 2, 440);
+  }
+  ctx.restore();
 
   ctx.save();
   ctx.textAlign = 'center';
   ctx.font = 'bold 22px Georgia';
   ctx.fillStyle = Math.sin(G.menuAnim * 5) > -0.2 ? '#efe6d2' : 'rgba(239,230,210,0.25)';
-  ctx.fillText('← → 选择角色　·　按 Enter 或 点击屏幕 开始', W / 2, 452);
+  ctx.fillText('← → 选择角色　·　按 Enter 或 点击屏幕 开始', W / 2, 466);
   ctx.font = '15px Trebuchet MS';
   ctx.fillStyle = 'rgba(220,205,180,0.65)';
-  ctx.fillText('WASD 移动　方向键 发射眼泪　E 放炸弹　空格 主动道具　Tab 地图', W / 2, 482);
+  ctx.fillText('WASD 移动　方向键 发射眼泪　E 放炸弹　空格 主动道具　Tab 地图', W / 2, 492);
   ctx.fillText('清空房间开门前进 · 打倒每层 Boss · 炸开秘密房 · 碰撞获取道具变强'
-    + (G.pendingSeedStr ? '　·　种子 ' + G.pendingSeedStr : '　·　S 输入种子'), W / 2, 504);
-  // tease the meta goals that are still open
-  const lockedGoals = UNLOCK_DEFS.filter(u => !metaHas(u.id));
+    + (G.pendingSeedStr ? '　·　种子 ' + G.pendingSeedStr : '　·　S 输入种子'), W / 2, 514);
+  // goals live in the codex now; the menu only counts them
+  const doneN = UNLOCK_DEFS.filter(u => metaHas(u.id)).length;
   ctx.font = '13px Trebuchet MS';
   ctx.fillStyle = 'rgba(180,166,140,0.55)';
-  if (lockedGoals.length) {
-    const shown = lockedGoals.slice(0, 3).map(u => u.how + ' → ' + u.label).join('　·　');
-    ctx.fillText('解锁目标（已 ' + (UNLOCK_DEFS.length - lockedGoals.length) + '/' + UNLOCK_DEFS.length + '）　' + shown, W / 2, 532);
-  } else {
-    ctx.fillText('全部解锁达成!', W / 2, 532);
-  }
+  ctx.fillText('按 P 打开解锁图鉴　·　已解锁 ' + doneN + ' / ' + UNLOCK_DEFS.length, W / 2, 540);
   ctx.restore();
+
+  if (G.unlockPanel) renderUnlockPanel();
 }
 
 function fmtTime(sec) {

@@ -41,6 +41,10 @@ const G = {
   menuAnim: 0,
   charIdx: 0,             // menu character selection
   menuDeny: 0,            // flash timer after trying to start a locked character
+  menuRot: 0,             // animated ring rotation, in character-index units
+  menuRotT: 0,            // rotation target menuRot eases toward
+  unlockPanel: false,     // menu overlay: the unlock codex (toggled with P)
+  unlockPopups: [],       // queued unlock cards popped during a run
   hardFloor: false,       // the current floor was entered through the spiked hatch
   floorDamage: 0,         // damage taken since entering this floor
   bossFightHurt: false,   // damage taken during the current boss fight
@@ -59,6 +63,7 @@ const FLOOR_CURSES = {
   unknown:  { name: '未知诅咒', desc: '看不清自己的生命' },
 };
 G.charIdx = Math.max(0, CHAR_DEFS.findIndex(c => c.id === META.selChar));
+G.menuRot = G.menuRotT = G.charIdx;
 
 // ---------------- input ----------------
 const keys = {};
@@ -76,6 +81,13 @@ window.addEventListener('keydown', e => {
   keys[e.code] = true;
   if (FIRE_DIRS[e.code]) {
     if (!fireStack.includes(e.code)) fireStack.push(e.code);
+  }
+  // on the menu, P opens/closes the unlock codex instead of pausing
+  if (G.state === 'menu' && (e.code === 'KeyP' || (e.code === 'Escape' && G.unlockPanel))) {
+    e.preventDefault();
+    G.unlockPanel = !G.unlockPanel;
+    SFX.item();
+    return;
   }
   if (e.code === 'KeyP' || e.code === 'Escape') {
     e.preventDefault();
@@ -137,13 +149,11 @@ canvas.addEventListener('pointerdown', e => {
     setPaused(false); return;
   }
   if (G.state === 'menu') {
+    if (G.unlockPanel) { G.unlockPanel = false; return; }
     const pos = canvasXY(e);
     const hit = menuCharHit(pos.x, pos.y);
     if (hit >= 0 && hit !== G.charIdx) {
-      G.charIdx = hit;
-      META.selChar = CHAR_DEFS[hit].id;
-      metaSave();
-      SFX.coin();
+      menuRotateTo(hit);
       return;
     }
     confirmScreen();
@@ -153,6 +163,7 @@ canvas.addEventListener('pointerdown', e => {
 });
 
 function confirmScreen() {
+  if (G.state === 'menu' && G.unlockPanel) { G.unlockPanel = false; return; }
   if (G.state === 'menu' && charLocked(CHAR_DEFS[G.charIdx])) {
     G.menuDeny = 1.2;   // flash the unlock condition instead of starting
     SFX.thud();
@@ -162,10 +173,7 @@ function confirmScreen() {
 }
 
 function menuSelectChar(step) {
-  G.charIdx = (G.charIdx + step + CHAR_DEFS.length) % CHAR_DEFS.length;
-  META.selChar = CHAR_DEFS[G.charIdx].id;
-  metaSave();
-  SFX.coin();
+  menuRotateTo((G.charIdx + step + CHAR_DEFS.length) % CHAR_DEFS.length);
 }
 
 // canvas-space coordinates of a pointer event (the canvas is CSS-scaled)
@@ -174,15 +182,7 @@ function canvasXY(e) {
   return { x: (e.clientX - r.left) * (W / r.width), y: (e.clientY - r.top) * (H / r.height) };
 }
 
-// menu character slots: three dodos in a row above the start prompt
-const MENU_CHAR_X = i => W / 2 + (i - 1) * 250;
-const MENU_CHAR_Y = 330;
-function menuCharHit(cx, cy) {
-  for (let i = 0; i < CHAR_DEFS.length; i++) {
-    if (Math.abs(cx - MENU_CHAR_X(i)) < 85 && cy > MENU_CHAR_Y - 95 && cy < MENU_CHAR_Y + 95) return i;
-  }
-  return -1;
-}
+// menu character slots sit on a ring now — see js/menu-unlocks.js
 
 // ---------------- dev mode ----------------
 // ` toggles it. [ / ] walk the whole item catalogue; every step rebuilds the
@@ -375,12 +375,14 @@ if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
 function metaEvent(ev) {
   if (G.devTainted) return;
   const fresh = metaCheck(ev);
-  for (const u of fresh) G.newUnlocks.push(u);
-  if (fresh.length) {
-    const u = fresh[0];
-    G.toast = { title: '解锁 · ' + u.label, desc: u.how + '　达成!', t: 3.4 };
-    SFX.chest();
+  for (const u of fresh) {
+    G.newUnlocks.push(u);
+    // pop the unlock card; a freshly unlocked item also lands in the bag
+    // right away (this run only — see grantUnlockedItem)
+    G.unlockPopups.push({ u, t: 5, max: 5,
+      granted: u.kind === 'item' && grantUnlockedItem(u) });
   }
+  if (fresh.length) SFX.chest();
 }
 
 // every taken item counts toward the single-run unlock (四重羽毛)

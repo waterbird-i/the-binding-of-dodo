@@ -17,10 +17,11 @@ module.exports = async ({ page, context, consoleErrors }) => {
     let leaked = false;
     for (let i = 0; i < 400; i++) if (metaItemLocked(randomItemDef([]).id)) leaked = true;
     out.poolClean = !leaked;
-    // characters: dodo free, the two variants locked
+    // characters: dodo free, the four variants locked
     out.chars = CHAR_DEFS.map(c => c.id).join(',');
     out.dodoFree = !charLocked(CHAR_BY_ID.dodo);
-    out.variantsLocked = charLocked(CHAR_BY_ID.rage) && charLocked(CHAR_BY_ID.dark);
+    out.variantsLocked = charLocked(CHAR_BY_ID.rage) && charLocked(CHAR_BY_ID.dark) &&
+      charLocked(CHAR_BY_ID.lost) && charLocked(CHAR_BY_ID.gambler);
     // rage unlocks at 300 lifetime kills; dark (and 玻璃大炮) on the first win
     META.totals.kills = 300;
     metaCheck('kill');
@@ -32,28 +33,41 @@ module.exports = async ({ page, context, consoleErrors }) => {
     // event unlocks land the moment the event fires
     metaCheck('no_damage_boss');
     out.kingsUnlocked = !metaItemLocked('kings_mark');
+    // lost unlocks at 25 lifetime deaths; gambler on the 25-coin event
+    META.totals.deaths = 25;
+    metaCheck('death');
+    out.lostUnlocked = !charLocked(CHAR_BY_ID.lost);
+    metaCheck('coins_25');
+    out.gamblerUnlocked = !charLocked(CHAR_BY_ID.gambler);
     // once unlocked, the item can actually roll out of the pool
     let saw = false;
     for (let i = 0; i < 3000 && !saw; i++) saw = randomItemDef([]).id === 'kings_mark';
     out.unlockedRolls = saw;
     // starting statlines
     const base = makePlayer('dodo'), rage = makePlayer('rage'), dark = makePlayer('dark');
-    out.rageStats = rage.maxHp === 4 && rage.damage > base.damage + 2;
+    out.rageStats = rage.maxHp === 4 && rage.damage > base.damage && rage.rageMeter === 0;
     out.rageBrow = rage.appearance.brow === 'angry';
     out.darkStats = dark.maxHp === 4 && dark.soulHp === 6 && dark.soulOverflow === true;
+    const lost = makePlayer('lost'), gam = makePlayer('gambler');
+    out.lostStats = lost.maxHp === 1 && lost.hp === 1 && lost.flight && lost.spectral && lost.shieldMax === 1;
+    out.gamStats = gam.coins === 15 && gam.luck >= 2;
     return out;
   });
   ok('门控道具都真实存在', meta.allGatedExist, JSON.stringify(meta));
   ok('清档后 6 件强力道具全部上锁', meta.lockedBefore && meta.gatedCount === 6, meta.gatedCount);
   ok('锁住的道具不会进入随机道具池', meta.poolClean);
-  ok('三个角色定义齐全', meta.chars === 'dodo,rage,dark', meta.chars);
+  ok('五个角色定义齐全', meta.chars === 'dodo,rage,dark,lost,gambler', meta.chars);
   ok('初始只有 dodo 可用', meta.dodoFree && meta.variantsLocked);
   ok('累计击杀 300 解锁生气 dodo', meta.rageUnlocked);
   ok('通关解锁暗黑 dodo 与玻璃大炮', meta.darkUnlocked && meta.glassUnlocked);
   ok('无伤击败 Boss 解锁王者印记', meta.kingsUnlocked);
+  ok('累计死亡 25 次解锁迷失 dodo', meta.lostUnlocked);
+  ok('持有 25 金币解锁赌徒 dodo', meta.gamblerUnlocked);
   ok('解锁后道具会进入道具池', meta.unlockedRolls);
-  ok('生气 dodo：2 颗心 + 高攻 + 怒容', meta.rageStats && meta.rageBrow);
+  ok('生气 dodo：2 颗心 + 怒气槽 + 怒容', meta.rageStats && meta.rageBrow);
   ok('暗黑 dodo：2 颗红心 + 3 颗魂心', meta.darkStats);
+  ok('迷失 dodo：半颗心 + 飞行幽泪圣盾', meta.lostStats);
+  ok('赌徒 dodo：15 金币开局 + 幸运', meta.gamStats);
 
   const soul = await page.evaluate(async () => {
     const out = {};
@@ -89,6 +103,74 @@ module.exports = async ({ page, context, consoleErrors }) => {
   ok('魂心先于红心扣除', soul.soulFirst);
   ok('暗黑 dodo 满血吃心转为魂心', soul.overflow);
   ok('普通 dodo 满血不吃心', soul.baseNoOverflow);
+
+  // ------------------------------------------------------- character powers
+  section('角色专属机制');
+  const powers = await page.evaluate(async () => {
+    const out = {};
+    const idx = id => CHAR_DEFS.findIndex(c => c.id === id);
+    // --- 生气 dodo: rage meter scales stats, low-hp enemies get executed ---
+    G.state = 'menu'; G.charIdx = idx('rage'); confirmScreen();
+    const p = G.player;
+    out.rageStart = p.charId === 'rage' && p.rageMeter === 0;
+    addRage(p, 0.5);
+    out.rageScales = Math.abs(rageDmgMul(p) - 1.35) < 1e-6 && rageFireMul(p) < 1 && rageSpeedAdd(p) > 0;
+    const e = makeEnemy('gaper', p.x + 120, p.y, 1);
+    e.spawnT = 0;
+    G.enemies.push(e);
+    damageEnemy(G, e, e.hp * 0.9, 1, 0);   // leaves 10% < 15% threshold
+    out.execute = e.dead === true;
+    out.rageFeeds = p.rageMeter > 0.5;      // the kill fed the meter back
+    updateRage(p, 1);
+    out.rageDecays = p.rageMeter < 0.59;
+    // --- 暗黑 dodo: soul flames congeal, devil deals run cheaper, no holy rolls ---
+    G.state = 'menu'; G.charIdx = idx('dark'); confirmScreen();
+    const d = G.player;
+    d.soulHp = 4; d.soulSparks = 2;
+    absorbSoulflame(d);
+    out.soulCongeal = d.soulHp === 5 && d.soulSparks === 3;
+    out.darkDevil = devilPriceFor(d, 2) === 1 && devilSoulCost(d) === 4;
+    let holyLeak = false;
+    for (let i = 0; i < 400; i++) if (DARK_HOLY_BAN[randomItemDef([]).id]) holyLeak = true;
+    out.holyBan = !holyLeak;
+    // --- 迷失 dodo: hp-ups slide off, devil deals are free, shield then death ---
+    G.state = 'menu'; G.charIdx = idx('lost'); confirmScreen();
+    const l = G.player;
+    out.lostStart = l.maxHp === 1 && l.hp === 1 && l.shieldUp === true;
+    out.lostFree = devilDealAfford(l, 2) && devilDealLabel(l, 2).indexOf('免费') >= 0;
+    l.maxHp += 4; l.soulHp = 6;
+    clampPlayerStats(l);
+    out.lostNoGain = l.maxHp === 1 && l.soulHp === 0;
+    l.invuln = 0; hurtPlayer(G, 1, l.x + 10, l.y);
+    out.lostShield = l.hp === 1 && l.shieldUp === false;
+    l.invuln = 0; hurtPlayer(G, 1, l.x + 10, l.y);
+    out.lostDies = l.hp <= 0;
+    // --- 赌徒 dodo: fortune rerolls per floor, shops go half price ---
+    G.state = 'menu'; G.charIdx = idx('gambler'); confirmScreen();
+    const g = G.player;
+    out.gamStart = g.charId === 'gambler' && g.coins === 15;
+    out.gamMod1 = !!g.gambleMod;
+    G.floorNum = 2; loadFloor();
+    out.gamMod2 = !!g.gambleMod;
+    const shop = G.floor.rooms.find(r => r.kind === 'shop');
+    if (shop) enterRoom(shop, 'N');   // shelves stock on first visit
+    out.gamShop = !shop || shop.shopItems[0].price === 1;   // battery: 2 → 1
+    // hand the default dodo back to the suites that follow — boss hp is
+    // sized off player dps, and a leftover gambler would skew that corridor
+    G.charIdx = 0;
+    G.menuRot = G.menuRotT = 0;
+    return out;
+  });
+  ok('生气 dodo：怒气增伤提速', powers.rageStart && powers.rageScales, JSON.stringify(powers));
+  ok('生气 dodo：处决残血敌人并回怒', powers.execute && powers.rageFeeds);
+  ok('生气 dodo：怒气随时间消退', powers.rageDecays);
+  ok('暗黑 dodo：3 团魂火凝成半颗魂心', powers.soulCongeal);
+  ok('暗黑 dodo：恶魔交易更便宜', powers.darkDevil);
+  ok('暗黑 dodo：圣物不进道具池', powers.holyBan);
+  ok('迷失 dodo：生命上限与魂心无效', powers.lostStart && powers.lostNoGain);
+  ok('迷失 dodo：恶魔交易免费', powers.lostFree);
+  ok('迷失 dodo：圣盾挡一下 再挨一下即死', powers.lostShield && powers.lostDies);
+  ok('赌徒 dodo：每层重摇运势 商店半价', powers.gamStart && powers.gamMod1 && powers.gamMod2 && powers.gamShop);
 
   // ------------------------------------------------------------ branch floors
   section('分岔层（第 4 / 8 层）');

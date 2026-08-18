@@ -14,8 +14,9 @@ function updatePlay(dt) {
   const il = Math.hypot(ix, iy);
   if (il > 1) { ix /= il; iy /= il; }
   const damp = 1 - Math.pow(0.0001, dt); // ~fast approach
-  p.vx += (ix * p.moveSpeed - p.vx) * Math.min(1, dt * 11);
-  p.vy += (iy * p.moveSpeed - p.vy) * Math.min(1, dt * 11);
+  const ms = p.moveSpeed + rageSpeedAdd(p);
+  p.vx += (ix * ms - p.vx) * Math.min(1, dt * 11);
+  p.vy += (iy * ms - p.vy) * Math.min(1, dt * 11);
   p.x += p.vx * dt;
   p.y += p.vy * dt;
   // dodo wings: flying ignores rocks and other floor obstacles
@@ -28,6 +29,7 @@ function updatePlay(dt) {
   p.hurtFlash = Math.max(0, p.hurtFlash - dt);
   p.blink = Math.max(0, p.blink - dt);
   p.wingGrow = Math.max(0, p.wingGrow - dt * 1.4);
+  updateRage(p, dt);
 
   // --- fire input ---
   let fd = null;
@@ -85,8 +87,12 @@ function updatePlay(dt) {
         if (p.soulHp < 12) { p.soulHp = Math.min(12, p.soulHp + 2); pk.taken = true; SFX.heart(); }
       } else if (pk.kind === 'coin') {
         p.coins++; pk.taken = true; SFX.coin();
+        if (p.coins >= 25) metaEvent('coins_25');
       } else if (pk.kind === 'bomb') {
         p.bombs++; pk.taken = true; SFX.thud();
+      } else if (pk.kind === 'soulflame') {
+        pk.taken = true;
+        absorbSoulflame(p);
       } else if (pk.kind === 'battery') {
         // only consumed when it actually charges something
         if (p.active && p.active.charge < p.active.def.cost) {

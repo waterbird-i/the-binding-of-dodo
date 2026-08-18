@@ -97,7 +97,8 @@ function render() {
         walk: p.walk, moving: p.moving, aimX: p.aimX, aimY: p.aimY,
         hurtFlash: p.hurtFlash > 0,
         headColor: p.appearance.headColor, eyeColor: p.appearance.eyeColor,
-        hat: p.appearance.hat, big: p.appearance.big, aura: p.appearance.aura,
+        hat: p.appearance.hat, big: p.appearance.big,
+        aura: rageBerserk(p) ? 'rgba(201,35,26,0.42)' : p.appearance.aura,
         brow: p.appearance.brow,
         blink: p.blink > 0,
         wings: p.flight, wingGrow: p.wingGrow, flap: p.flap,
@@ -165,7 +166,8 @@ function render() {
         soulheart: ['魂心', '蓝色护心 先于红心消耗!'],
         coin: ['金币', '捡起来存进钱袋!'], chest: ['宝箱', '开启宝箱拿奖励!'],
         bomb: ['炸弹', '按 E 放置 能炸开裂缝的墙!'],
-        battery: ['电池', '为主动道具充能一层!'] }[pk.kind];
+        battery: ['电池', '为主动道具充能一层!'],
+        soulflame: ['魂火', '充能一层 集齐 3 团凝成半颗魂心!'] }[pk.kind];
       if (t) tips.push({ name: t[0], desc: t[1], x: pk.x, y: pk.y });
     }
   }
@@ -212,6 +214,7 @@ function render() {
   if (G.state === 'dead') renderDeath();
   if (G.state === 'win') renderWin();
   if (G.paused) renderPause();
+  if (G.unlockPopups.length) renderUnlockPopups();
   applyPostFX(ctx);
 }
 
@@ -307,6 +310,27 @@ function renderHUD() {
   ctx.fillStyle = '#efe6d2';
   ctx.font = 'bold 16px Trebuchet MS';
   ctx.fillText('× ' + p.bombs, 48, 87);
+  // 生气 dodo: the rage meter sits beside the consumables
+  if (p.charId === 'rage') {
+    const rx = 104, ry = 80, rw = 84, rh = 9;
+    const k = p.rageMeter || 0;
+    ctx.fillStyle = 'rgba(10,8,6,0.55)';
+    ctx.fillRect(rx - 2, ry - 2, rw + 4, rh + 4);
+    ctx.fillStyle = rageBerserk(p) ? '#e8452f' : '#a3271b';
+    ctx.fillRect(rx, ry, rw * k, rh);
+    ctx.strokeStyle = PAL.outline;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(rx, ry, rw, rh);
+    ctx.fillStyle = rageBerserk(p) ? '#e8452f' : 'rgba(240,230,210,0.7)';
+    ctx.font = 'bold 11px Trebuchet MS';
+    ctx.fillText(rageBerserk(p) ? '暴走!' : '怒气', rx + rw + 6, ry + 8);
+  }
+  // 暗黑 dodo: reaped soul flames toward the next half soul heart
+  if (p.charId === 'dark') {
+    ctx.fillStyle = '#8fb8dd';
+    ctx.font = 'bold 12px Trebuchet MS';
+    ctx.fillText('魂火 ' + ((p.soulSparks || 0) % 3) + ' / 3', 104, 88);
+  }
   // active item slot: icon in a frame, charge pips underneath
   if (p.active) {
     const ax = 34, ay = 130;

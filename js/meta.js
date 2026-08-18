@@ -34,23 +34,44 @@ metaLoad();
 // the starting statline, so all 89 items and every animation keep working.
 const CHAR_DEFS = [
   { id: 'dodo', name: 'dodo', desc: '均衡的开局', unlock: null },
-  { id: 'rage', name: '生气 dodo', desc: '攻击暴涨 生命只有 2 颗心', unlock: 'char_rage',
+  { id: 'rage', name: '生气 dodo', desc: '怒气驱动 越战越狂 处决残血敌人', unlock: 'char_rage',
     apply(p) {
       p.maxHp = 4; p.hp = 4;
-      p.damage += 2.4;
-      p.moveSpeed += 15;
+      p.damage += 0.8;
+      p.rageMeter = 0;       // 0..1 — kills and pain feed it (js/char-powers.js)
       p.appearance.headColor = '#f2b4a2';
       p.appearance.eyeColor = '#a32014';
       p.appearance.brow = 'angry';
     } },
-  { id: 'dark', name: '暗黑 dodo', desc: '3 颗魂心护体 红心只有 2 颗', unlock: 'char_dark',
+  { id: 'dark', name: '暗黑 dodo', desc: '恶魔宠儿 交易更廉 击杀收割魂火', unlock: 'char_dark',
     apply(p) {
       p.maxHp = 4; p.hp = 4;
       p.soulHp = 6;
       p.soulOverflow = true;   // hearts picked up at full health become soul hearts
+      p.soulSparks = 0;        // reaped soul flames — 3 congeal into half a soul heart
       p.appearance.headColor = '#5d5573';
       p.appearance.eyeColor = '#cbb9f2';
       p.appearance.aura = 'rgba(96,64,150,0.28)';
+    } },
+  { id: 'lost', name: '迷失 dodo', desc: '一触即死 飞行幽泪 圣盾护身 恶魔白送', unlock: 'char_lost',
+    apply(p) {
+      p.maxHp = 1; p.hp = 1;   // half a heart: any hit is lethal (clamp exempts him)
+      p.flight = true;
+      p.spectral = true;
+      p.shieldMax = 1; p.shieldUp = true;
+      p.damage += 1.0;
+      p.moveSpeed += 20;
+      p.appearance.headColor = '#eef1f6';
+      p.appearance.eyeColor = '#6b7684';
+      p.appearance.aura = 'rgba(210,225,255,0.28)';
+    } },
+  { id: 'gambler', name: '赌徒 dodo', desc: '开局 15 金币 商店半价 每层运势重摇', unlock: 'char_gambler',
+    apply(p) {
+      p.coins = 15;
+      p.luck += 2;
+      p.appearance.headColor = '#f4e6c4';
+      p.appearance.eyeColor = '#1f6b3a';
+      p.appearance.aura = 'rgba(220,180,60,0.2)';
     } },
 ];
 const CHAR_BY_ID = {};
@@ -70,6 +91,8 @@ const UNLOCK_DEFS = [
   { id: 'dead_cat',     kind: 'item', label: '死猫',      how: '累计死亡 10 次',        test: t => t.deaths >= 10 },
   { id: 'char_rage',    kind: 'char', label: '生气 dodo', how: '累计击杀 300 只怪物',   test: t => t.kills >= 300 },
   { id: 'char_dark',    kind: 'char', label: '暗黑 dodo', how: '通关一次',              test: t => t.wins >= 1 },
+  { id: 'char_lost',    kind: 'char', label: '迷失 dodo', how: '累计死亡 25 次',        test: t => t.deaths >= 25 },
+  { id: 'char_gambler', kind: 'char', label: '赌徒 dodo', how: '单局同时持有 25 金币',  on: 'coins_25' },
 ];
 const ITEM_UNLOCKS = {};   // item id -> unlock def (items gated behind meta progress)
 for (const u of UNLOCK_DEFS) if (u.kind === 'item') ITEM_UNLOCKS[u.id] = u;

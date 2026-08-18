@@ -420,8 +420,9 @@ function poolDefs(pool) {
 // prefer items the player hasn't collected yet, so a run keeps surprising;
 // pool narrows the roll to one pool, falling back to everything if drained
 function randomItemDef(exclude, pool) {
-  // meta-locked items (see js/meta.js) never enter a random pool until earned
-  const fresh = d => !exclude.includes(d.id) && !metaItemLocked(d.id);
+  // meta-locked items (see js/meta.js) never enter a random pool until
+  // earned; holy items refuse the dark dodo (js/char-powers.js)
+  const fresh = d => !exclude.includes(d.id) && !metaItemLocked(d.id) && !charBansItem(d.id);
   let cand = poolDefs(pool).filter(fresh);
   if (!cand.length) cand = ITEM_DEFS.filter(fresh);
   return cand.length ? pick(cand) : pick(ITEM_DEFS);
@@ -475,6 +476,10 @@ function stockShop(room, depth) {
     ware({ kind: 'item', def: defs[0], price: base }, 2),
     ware(slot2, 3),
   ];
+  // 赌徒 dodo shops at half price
+  if (typeof G !== 'undefined' && G.player && G.player.charId === 'gambler') {
+    for (const w of room.shopItems) w.price = Math.max(1, Math.ceil(w.price / 2));
+  }
 }
 
 // resolve deferred pedestal contents (random passive / random active) the
@@ -496,16 +501,22 @@ function resolvePedestals(room, p) {
 // Devil pedestals are paid in hearts, not coins. Red heart containers go
 // first; a dodo too poor in containers can pay 3 soul hearts instead.
 function devilDealAfford(p, price) {
-  return p.maxHp - price * 2 >= 2 || p.soulHp >= 6;
+  if (devilFreeDeal(p)) return true;
+  price = devilPriceFor(p, price);
+  return p.maxHp - price * 2 >= 2 || p.soulHp >= devilSoulCost(p);
 }
 function devilDealPay(p, price) {
+  if (devilFreeDeal(p)) return;
+  price = devilPriceFor(p, price);
   if (p.maxHp - price * 2 >= 2) {
     p.maxHp -= price * 2;
     p.hp = Math.min(p.hp, p.maxHp);
   } else {
-    p.soulHp -= 6;
+    p.soulHp -= devilSoulCost(p);
   }
 }
 function devilDealLabel(p, price) {
-  return p.maxHp - price * 2 >= 2 ? price + ' 颗红心上限' : '3 颗魂心';
+  if (devilFreeDeal(p)) return '免费 · 向死而生';
+  price = devilPriceFor(p, price);
+  return p.maxHp - price * 2 >= 2 ? price + ' 颗红心上限' : (devilSoulCost(p) / 2) + ' 颗魂心';
 }
