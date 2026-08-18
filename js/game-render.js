@@ -165,7 +165,7 @@ function render() {
       const t = { heart: ['红心', '回复一颗心!'], halfheart: ['半颗心', '回复半颗心!'],
         soulheart: ['魂心', '蓝色护心 先于红心消耗!'],
         coin: ['金币', '捡起来存进钱袋!'], chest: ['宝箱', '开启宝箱拿奖励!'],
-        bomb: ['炸弹', '按 E 放置 能炸开裂缝的墙!'],
+        bomb: ['炸弹', (IS_TOUCH ? '点「炸弹」按钮放置' : '按 E 放置') + ' 能炸开裂缝的墙!'],
         battery: ['电池', '为主动道具充能一层!'],
         soulflame: ['魂火', '充能一层 集齐 3 团凝成半颗魂心!'] }[pk.kind];
       if (t) tips.push({ name: t[0], desc: t[1], x: pk.x, y: pk.y });
@@ -213,7 +213,7 @@ function render() {
   if (G.state === 'play' && !G.paused && G.mapOverlay && G.floorCurse !== 'lost') drawFullMap(ctx, G.floor, G.room);
   if (G.state === 'dead') renderDeath();
   if (G.state === 'win') renderWin();
-  if (G.paused) renderPause();
+  if (G.paused) (G.unlockPanel ? renderUnlockPanel() : renderPause());
   if (G.unlockPopups.length) renderUnlockPopups();
   applyPostFX(ctx);
 }
@@ -359,7 +359,7 @@ function renderHUD() {
       ctx.fillStyle = 'rgba(244,208,63,' + (0.55 + 0.35 * Math.sin(performance.now() / 250)) + ')';
       ctx.font = 'bold 12px Trebuchet MS';
       ctx.textAlign = 'center';
-      ctx.fillText('空格', ax, ay + 47);
+      ctx.fillText(IS_TOUCH ? '道具' : '空格', ax, ay + 47);
       ctx.textAlign = 'left';
     }
   }

@@ -2,7 +2,7 @@
 // ============ menu character ring / unlock codex / unlock popups ============
 // Isaac-style character select: the picked dodo stands front and center on an
 // elliptical ring, the others wait behind. The unlock goals moved off the
-// menu into a codex overlay (P). Unlocks earned mid-run pop a card and the
+// menu into a codex overlay (I, works mid-run too). Unlocks earned mid-run pop a card and the
 // item lands in the bag immediately — that run only; later runs must find it
 // in the dungeon like anything else.
 
@@ -20,6 +20,11 @@ function menuCharPos(i) {
     depth,
     scale: 0.6 + 0.5 * depth,
   };
+}
+
+// tap target of the menu's codex line ("按 I 或点这里打开解锁图鉴")
+function menuCodexHit(cx, cy) {
+  return !G.unlockPanel && Math.abs(cx - W / 2) < 220 && cy > 524 && cy < 552;
 }
 
 // front-most character under the pointer (front slots win overlaps)
@@ -47,7 +52,7 @@ function menuRotateTo(idx) {
   SFX.coin();
 }
 
-// ---------------- unlock codex (P on the menu) ----------------
+// ---------------- unlock codex (I, on the menu or mid-run) ----------------
 // scratch canvas so locked entries render as a near-black silhouette
 const SIL = document.createElement('canvas');
 SIL.width = SIL.height = 96;
@@ -134,8 +139,8 @@ function renderUnlockPanel() {
 
   ctx.textAlign = 'center';
   ctx.font = 'bold 17px Georgia';
-  ctx.fillStyle = Math.sin(G.menuAnim * 5) > -0.2 ? '#efe6d2' : 'rgba(239,230,210,0.35)';
-  ctx.fillText('按 P 或 Esc 关闭', W / 2, H - 24);
+  ctx.fillStyle = Math.sin(performance.now() / 190) > -0.2 ? '#efe6d2' : 'rgba(239,230,210,0.35)';
+  ctx.fillText('按 I 或 Esc 关闭　·　点击屏幕也可关闭', W / 2, H - 24);
   ctx.restore();
 }
 

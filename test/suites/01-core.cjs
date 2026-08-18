@@ -13,6 +13,8 @@ module.exports = async ({ page, context, consoleErrors }) => {
   const jsFiles = fs.readdirSync(path.join(ROOT, 'js')).filter(f => f.endsWith('.js'));
   const esm = jsFiles.filter(f => /^\s*(import|export)\s/m.test(fs.readFileSync(path.join(ROOT, 'js', f), 'utf8')));
   ok('js 里没有 import/export（file:// 下不会被 CORS 拦）', esm.length === 0, esm.join(','));
+  ok('触控 UI 带炸弹 / 主动道具按钮', /btn-bomb/.test(html) && /btn-item/.test(html));
+  ok('页面带竖屏横放提示层', /rotate-hint/.test(html));
   ok('file:// 直接打开即可运行', await page.evaluate(() => location.protocol === 'file:' && typeof G === 'object'));
 
   // ------------------------------------------------------------- title / boot
@@ -97,6 +99,29 @@ module.exports = async ({ page, context, consoleErrors }) => {
   const p4 = await state(page);
   ok('恢复后可以继续移动', Math.abs(p4.x - p2.x) > 10, 'dx=' + (p4.x - p2.x).toFixed(1));
 
+  // ---------------------------------------------------- unlock codex (I key)
+  section('解锁图鉴（I 键）');
+  await press(page, 'KeyI');
+  await frames(page, 2);
+  ok('游戏中按 I 打开图鉴并自动暂停',
+    await page.evaluate(() => G.unlockPanel === true && G.paused === true));
+  ok('图鉴界面已绘制（标题行有亮字）', await page.evaluate(() => {
+    const d = ctx.getImageData(0, 30, canvas.width, 40).data;
+    let bright = 0;
+    for (let i = 0; i < d.length; i += 4) if (d[i] > 180 && d[i + 1] > 170) bright++;
+    return bright > 60;
+  }));
+  await press(page, 'KeyI');
+  await frames(page, 2);
+  ok('再按 I 关闭图鉴并直接恢复游戏',
+    await page.evaluate(() => G.unlockPanel === false && G.paused === false));
+  await press(page, 'KeyI');
+  await frames(page, 2);
+  await press(page, 'Escape');
+  await frames(page, 2);
+  ok('图鉴打开时 Esc 同样关闭并恢复',
+    await page.evaluate(() => G.unlockPanel === false && G.paused === false));
+
   section('开发者模式（` 键）');
   await press(page, 'Backquote');
   await frames(page, 2);
@@ -154,6 +179,12 @@ module.exports = async ({ page, context, consoleErrors }) => {
   await page.evaluate(() => { G.state = 'menu'; G.paused = false; });
   await press(page, 'KeyP');
   ok('菜单/结算界面按 P 不会进入暂停', (await state(page)).paused === false);
+  await press(page, 'KeyI');
+  await frames(page, 2);
+  ok('菜单按 I 打开解锁图鉴', await page.evaluate(() => G.unlockPanel === true && G.paused === false));
+  await press(page, 'KeyI');
+  await frames(page, 2);
+  ok('菜单再按 I 关闭图鉴', await page.evaluate(() => G.unlockPanel === false));
   await page.evaluate(() => { G.state = 'play'; });
 
   // ------------------------------------------------------------ floors: 12

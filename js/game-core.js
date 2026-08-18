@@ -43,7 +43,7 @@ const G = {
   menuDeny: 0,            // flash timer after trying to start a locked character
   menuRot: 0,             // animated ring rotation, in character-index units
   menuRotT: 0,            // rotation target menuRot eases toward
-  unlockPanel: false,     // menu overlay: the unlock codex (toggled with P)
+  unlockPanel: false,     // the unlock codex overlay (toggled with I, menu or mid-run)
   unlockPopups: [],       // queued unlock cards popped during a run
   hardFloor: false,       // the current floor was entered through the spiked hatch
   floorDamage: 0,         // damage taken since entering this floor
@@ -82,15 +82,25 @@ window.addEventListener('keydown', e => {
   if (FIRE_DIRS[e.code]) {
     if (!fireStack.includes(e.code)) fireStack.push(e.code);
   }
-  // on the menu, P opens/closes the unlock codex instead of pausing
-  if (G.state === 'menu' && (e.code === 'KeyP' || (e.code === 'Escape' && G.unlockPanel))) {
+  // I toggles the unlock codex; P stays pause-only so the two never collide.
+  // On the menu the codex overlays the title; mid-run it pauses the game
+  // underneath, and closing it resumes play.
+  if (e.code === 'KeyI' || (e.code === 'Escape' && G.unlockPanel)) {
     e.preventDefault();
-    G.unlockPanel = !G.unlockPanel;
-    SFX.item();
+    if (G.state === 'menu') {
+      G.unlockPanel = !G.unlockPanel;
+      SFX.item();
+    } else if (G.state === 'play') {
+      if (G.unlockPanel) { G.unlockPanel = false; setPaused(false); }
+      else { setPaused(true); G.unlockPanel = true; }
+      SFX.item();
+    }
     return;
   }
   if (e.code === 'KeyP' || e.code === 'Escape') {
     e.preventDefault();
+    // P while the codex is up closes it and resumes, same as I
+    if (G.unlockPanel && G.state === 'play') { G.unlockPanel = false; setPaused(false); return; }
     togglePause();
     return;
   }
@@ -144,13 +154,17 @@ window.addEventListener('pointerdown', () => canvas.focus());
 canvas.addEventListener('pointerdown', e => {
   SFX.unlock();
   if (G.paused) {
-    // the pause overlay has one clickable region: the changelog doc link
+    // tapping the codex closes it and resumes; otherwise the pause overlay
+    // keeps its one clickable region: the changelog doc link
+    if (G.unlockPanel) { G.unlockPanel = false; setPaused(false); return; }
     if (pauseDocLinkHit(e)) { window.open(LB_DOC_URL, '_blank'); return; }
     setPaused(false); return;
   }
   if (G.state === 'menu') {
     if (G.unlockPanel) { G.unlockPanel = false; return; }
     const pos = canvasXY(e);
+    // the codex line doubles as a tap target so touch players can open it too
+    if (menuCodexHit(pos.x, pos.y)) { G.unlockPanel = true; SFX.item(); return; }
     const hit = menuCharHit(pos.x, pos.y);
     if (hit >= 0 && hit !== G.charIdx) {
       menuRotateTo(hit);
@@ -316,8 +330,27 @@ function useActiveItem() {
 
 // ---------------- touch controls ----------------
 const touchUI = document.getElementById('touch-ui');
-if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
+const IS_TOUCH = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+if (IS_TOUCH) {
   touchUI.classList.remove('hidden');
+  document.body.classList.add('touch');
+  // the game is landscape-only on phones: portrait shows a fullscreen rotate
+  // hint (CSS-driven) and freezes the run underneath it
+  const portraitMq = window.matchMedia('(orientation: portrait)');
+  const onFlip = () => { if (portraitMq.matches) setPaused(true); };
+  if (portraitMq.addEventListener) portraitMq.addEventListener('change', onFlip);
+  else portraitMq.addListener(onFlip);
+  onFlip();
+  // best effort: fullscreen + landscape lock on the first touch (Android);
+  // iOS has no lock API, so there the rotate hint does the guiding
+  window.addEventListener('touchend', () => {
+    const el = document.documentElement;
+    if (el.requestFullscreen && screen.orientation && screen.orientation.lock) {
+      el.requestFullscreen()
+        .then(() => screen.orientation.lock('landscape'))
+        .catch(() => {});
+    }
+  }, { once: true });
 }
 (function setupTouch() {
   const zone = document.getElementById('stick-zone');
@@ -362,12 +395,25 @@ if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
     const d = btn.dataset.dir;
     btn.addEventListener('touchstart', e => {
       e.preventDefault();
-      if (G.paused) { setPaused(false); return; }
+      if (G.paused) { G.unlockPanel = false; setPaused(false); return; }
       touch.fire = dirVec[d];
       if (G.state !== 'play') confirmScreen();
     }, { passive: false });
     btn.addEventListener('touchend', e => { e.preventDefault(); if (touch.fire === dirVec[d]) touch.fire = null; }, { passive: false });
   });
+
+  // bomb / active-item buttons: the two keyboard-only actions (E / Space)
+  // that used to be unreachable on touch
+  const bindAction = (id, fn) => {
+    document.getElementById(id).addEventListener('touchstart', e => {
+      e.preventDefault();
+      SFX.unlock();
+      if (G.paused) { G.unlockPanel = false; setPaused(false); return; }
+      if (G.state === 'play') fn();
+    }, { passive: false });
+  };
+  bindAction('btn-bomb', placeBomb);
+  bindAction('btn-item', useActiveItem);
 })();
 
 // ---------------- meta progress plumbing ----------------

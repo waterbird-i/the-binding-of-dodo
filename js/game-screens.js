@@ -70,7 +70,7 @@ function renderMenu() {
   ctx.font = '14px Trebuchet MS';
   if (selLocked) {
     ctx.fillStyle = G.menuDeny > 0 ? '#e8452f' : 'rgba(200,186,158,0.6)';
-    ctx.fillText('未解锁　·　按 P 查看解锁条件', W / 2, 440);
+    ctx.fillText('未解锁　·　按 I 查看解锁条件', W / 2, 440);
   } else {
     ctx.fillStyle = 'rgba(200,186,158,0.7)';
     ctx.fillText(sel.desc, W / 2, 440);
@@ -84,14 +84,16 @@ function renderMenu() {
   ctx.fillText('← → 选择角色　·　按 Enter 或 点击屏幕 开始', W / 2, 466);
   ctx.font = '15px Trebuchet MS';
   ctx.fillStyle = 'rgba(220,205,180,0.65)';
-  ctx.fillText('WASD 移动　方向键 发射眼泪　E 放炸弹　空格 主动道具　Tab 地图', W / 2, 492);
+  ctx.fillText(IS_TOUCH
+    ? '左摇杆 移动　右侧四向键 发射眼泪　悬浮按钮 放炸弹 / 用主动道具'
+    : 'WASD 移动　方向键 发射眼泪　E 放炸弹　空格 主动道具　Tab 地图', W / 2, 492);
   ctx.fillText('清空房间开门前进 · 打倒每层 Boss · 炸开秘密房 · 碰撞获取道具变强'
     + (G.pendingSeedStr ? '　·　种子 ' + G.pendingSeedStr : '　·　S 输入种子'), W / 2, 514);
   // goals live in the codex now; the menu only counts them
   const doneN = UNLOCK_DEFS.filter(u => metaHas(u.id)).length;
   ctx.font = '13px Trebuchet MS';
   ctx.fillStyle = 'rgba(180,166,140,0.55)';
-  ctx.fillText('按 P 打开解锁图鉴　·　已解锁 ' + doneN + ' / ' + UNLOCK_DEFS.length, W / 2, 540);
+  ctx.fillText((IS_TOUCH ? '点这里打开解锁图鉴' : '按 I 或点这里打开解锁图鉴') + '　·　已解锁 ' + doneN + ' / ' + UNLOCK_DEFS.length, W / 2, 540);
   ctx.restore();
 
   if (G.unlockPanel) renderUnlockPanel();
@@ -360,7 +362,9 @@ function renderPause() {
   ctx.textAlign = 'center';
   ctx.font = 'bold 19px Georgia';
   ctx.fillStyle = Math.sin(G.pauseAnim * 4) > -0.3 ? '#efe6d2' : 'rgba(239,230,210,0.3)';
-  ctx.fillText('按 P 继续　·　切换窗口会自动暂停', W / 2, H - 46);
+  ctx.fillText(IS_TOUCH
+    ? '点击屏幕继续　·　切换窗口会自动暂停'
+    : '按 P 继续　·　按 I 看解锁图鉴　·　切换窗口会自动暂停', W / 2, H - 46);
 
   // changelog / manual doc link (the one clickable spot on this overlay)
   const link = '更新日志与玩法说明 · 点这里查看';
