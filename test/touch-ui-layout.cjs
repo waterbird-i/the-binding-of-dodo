@@ -91,6 +91,20 @@ async function layout() {
   const canvas = await box('#game');
   ok('画布仍占满视口高', Math.abs(canvas.h - vh) < 2, JSON.stringify(canvas));
 
+  section('横竖屏往返');
+  // 回归：旋转提示曾在 横→竖→横 往返后卡住（纯 CSS 媒体查询在 iOS 上会失灵，
+  // 现在由 JS 多信号判断并挂 body.portrait 类驱动）。往返三次逐次断言。
+  const hintShown = () =>
+    page.$eval('#rotate-hint', el => getComputedStyle(el).display !== 'none');
+  for (let i = 1; i <= 3; i++) {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.waitForTimeout(250);
+    ok('第' + i + '次竖屏：出现旋转提示', await hintShown());
+    await page.setViewportSize({ width: 812, height: 375 });
+    await page.waitForTimeout(250);
+    ok('第' + i + '次转回横屏：提示消失', !(await hintShown()));
+  }
+
   await page.screenshot({ path: '/tmp/touch-ui-layout.png' });
   console.log('screenshot: /tmp/touch-ui-layout.png');
   await browser.close();

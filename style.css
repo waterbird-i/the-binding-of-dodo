@@ -139,16 +139,16 @@ canvas {
 #touch-ui.overlay #fire-pad,
 #touch-ui.overlay #action-pad { display:none; }
 
-/* phones are landscape-only: portrait shows a fullscreen rotate hint */
+/* phones are landscape-only: portrait shows a fullscreen rotate hint.
+   body.portrait is set from JS (multi-signal orientation detection) — the raw
+   (orientation) media query can go stale on iOS after a few quick flips */
 #rotate-hint { display:none; }
-@media (orientation: portrait) {
-  body.touch #rotate-hint {
-    position:fixed; inset:0; z-index:30;
-    display:flex; flex-direction:column; align-items:center; justify-content:center;
-    gap:30px;
-    background:rgba(8,5,3,.96);
-    color:#e8dcc0; font-size:18px; letter-spacing:3px;
-  }
+body.touch.portrait #rotate-hint {
+  position:fixed; inset:0; z-index:30;
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  gap:30px;
+  background:rgba(8,5,3,.96);
+  color:#e8dcc0; font-size:18px; letter-spacing:3px;
 }
 #rotate-phone {
   width:44px; height:78px; border-radius:9px;

@@ -355,23 +355,6 @@ const IS_TOUCH = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 if (IS_TOUCH) {
   touchUI.classList.remove('hidden');
   document.body.classList.add('touch');
-  // the game is landscape-only on phones: portrait shows a fullscreen rotate
-  // hint (CSS-driven) and freezes the run underneath it
-  const portraitMq = window.matchMedia('(orientation: portrait)');
-  const onFlip = () => { if (portraitMq.matches) setPaused(true); };
-  if (portraitMq.addEventListener) portraitMq.addEventListener('change', onFlip);
-  else portraitMq.addListener(onFlip);
-  onFlip();
-  // best effort: fullscreen + landscape lock on the first touch (Android);
-  // iOS has no lock API, so there the rotate hint does the guiding
-  window.addEventListener('touchend', () => {
-    const el = document.documentElement;
-    if (el.requestFullscreen && screen.orientation && screen.orientation.lock) {
-      el.requestFullscreen()
-        .then(() => screen.orientation.lock('landscape'))
-        .catch(() => {});
-    }
-  }, { once: true });
   // the 暂停 / 图鉴 buttons float over the canvas' top-left corner, exactly
   // where the heart row is drawn. Measure how far down they reach (in canvas
   // units — the canvas is CSS-scaled) and let renderHUD start below them.
@@ -380,8 +363,55 @@ if (IS_TOUCH) {
     const pad = document.getElementById('top-pad').getBoundingClientRect();
     G.hudTop = c.height ? Math.max(0, (pad.bottom - c.top) * (H / c.height) + 6) : 0;
   };
-  window.addEventListener('resize', syncHudTop);
-  syncHudTop();
+  // The game is landscape-only on phones: portrait shows a fullscreen rotate
+  // hint and freezes the run underneath it. Orientation is decided in JS from
+  // several signals instead of a bare CSS media query — after a couple of
+  // quick flips iOS can leave the media query (and the viewport size behind
+  // it) stale, which kept the hint stuck on screen while already landscape.
+  const isPortrait = () => {
+    const so = screen.orientation;
+    if (so && so.type) return so.type.indexOf('portrait') === 0;
+    if (typeof window.orientation === 'number') return Math.abs(window.orientation) !== 90;
+    return window.innerHeight > window.innerWidth;
+  };
+  const syncOrientation = () => {
+    const portrait = isPortrait();
+    document.body.classList.toggle('portrait', portrait);
+    if (portrait) setPaused(true);
+    syncHudTop();   // rotating resizes the canvas, so hudTop moves with it
+  };
+  // rotate events fire before the viewport finishes updating (iOS lags by a
+  // few frames), so every trigger re-checks a few more times shortly after
+  let orientTimers = [];
+  const queueOrientSync = () => {
+    syncOrientation();
+    for (const t of orientTimers) clearTimeout(t);
+    orientTimers = [120, 300, 700].map(ms => setTimeout(syncOrientation, ms));
+  };
+  if (screen.orientation && screen.orientation.addEventListener)
+    screen.orientation.addEventListener('change', queueOrientSync);
+  window.addEventListener('orientationchange', queueOrientSync);
+  window.addEventListener('resize', queueOrientSync);
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', queueOrientSync);
+  document.addEventListener('fullscreenchange', queueOrientSync);
+  queueOrientSync();
+  // best effort: fullscreen + landscape lock (Android; iOS has no lock API).
+  // No longer once-only — with OS auto-rotate switched off the programmatic
+  // lock is the only road back to landscape, so the rotate hint doubles as a
+  // tap target that re-tries the lock every time.
+  const tryLockLandscape = () => {
+    const el = document.documentElement;
+    if (el.requestFullscreen && screen.orientation && screen.orientation.lock) {
+      el.requestFullscreen()
+        .then(() => screen.orientation.lock('landscape'))
+        .catch(() => {});
+    }
+  };
+  window.addEventListener('touchend', tryLockLandscape, { once: true });
+  const rotateHint = document.getElementById('rotate-hint');
+  rotateHint.addEventListener('touchend', e => { e.preventDefault(); tryLockLandscape(); }, { passive: false });
+  if (screen.orientation && screen.orientation.lock)
+    rotateHint.querySelector('p').textContent = '请将手机横过来游玩（点一下屏幕也行）';
 }
 (function setupTouch() {
   const zone = document.getElementById('stick-zone');
