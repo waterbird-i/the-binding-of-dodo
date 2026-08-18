@@ -1053,6 +1053,7 @@ async function runSuite(page, context, consoleErrors) {
       stocked: !!G.room.shopStocked,
       count: ws.length,
       heart: ws.filter(w => w.kind === 'heart').map(w => w.price)[0],
+      battery: ws.filter(w => w.kind === 'battery').map(w => w.price)[0],
       items: ws.filter(w => w.kind === 'item' || w.kind === 'active')
         .map(w => ({ id: w.def && w.def.id, price: w.price })),
       hasConsumable: ws.some(w => w.kind === 'bomb' || w.kind === 'battery'),
@@ -1063,7 +1064,8 @@ async function runSuite(page, context, consoleErrors) {
   ok('商店房有怪物守卫', shopEnter.enemies > 0, 'enemies=' + shopEnter.enemies);
   ok('进门时门是关闭的（未清怪）', shopEnter.cleared === false);
   ok('首次进店进货 4 件', shopEnter.stocked && shopEnter.count === 4, 'count=' + shopEnter.count);
-  eq('红心标价 3 金币', shopEnter.heart, 3);
+  ok('红心若上架标价 5 金币', !shopEnter.heart || shopEnter.heart === 5, 'heart=' + shopEnter.heart);
+  eq('电池固定上架且标价 2 金币', shopEnter.battery, 2);
   ok('上架炸弹或电池消耗品', shopEnter.hasConsumable);
   ok('两件道具位已定价且不重复',
     shopEnter.items.length === 2 && shopEnter.items[0].id && shopEnter.items[1].id &&
@@ -1104,7 +1106,14 @@ async function runSuite(page, context, consoleErrors) {
 
   const shopHeart = await page.evaluate(() => {
     const p = G.player;
-    const w = G.room.shopItems.find(w => w.kind === 'heart');
+    // the consumable slot alternates bomb/heart — force a heart in if this
+    // shop rolled bombs, so the purchase math is deterministic
+    const ws = G.room.shopItems;
+    if (!ws.some(w => w.kind === 'heart')) {
+      ws[1] = Object.assign({ kind: 'heart', name: '红心', desc: '回复一颗心!', price: 5 },
+        { x: ws[1].x, y: ws[1].y, anim: 0, taken: false, near: false, denyT: 0 });
+    }
+    const w = ws.find(w => w.kind === 'heart');
     p.coins = 10;
     p.hp = p.maxHp;                          // full health: heart should be refused
     p.x = w.x; p.y = w.y; p.vx = 0; p.vy = 0;
@@ -1116,8 +1125,8 @@ async function runSuite(page, context, consoleErrors) {
     return { fullBlocked, taken: w.taken, coins: p.coins, healed: p.hp === p.maxHp };
   });
   ok('满血时不会浪费金币买红心', shopHeart.fullBlocked);
-  ok('缺血时红心购买生效（扣 3 金币回满）',
-    shopHeart.taken && shopHeart.coins === 7 && shopHeart.healed,
+  ok('缺血时红心购买生效（扣 5 金币回满）',
+    shopHeart.taken && shopHeart.coins === 5 && shopHeart.healed,
     JSON.stringify(shopHeart));
 
   const shopMap = await page.evaluate(() => {

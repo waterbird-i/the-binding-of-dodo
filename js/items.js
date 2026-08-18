@@ -345,16 +345,17 @@ function stockShop(room, depth) {
     x: W / 2 + [-225, -75, 75, 225][i], y: wy,
     anim: rand(10), taken: false, near: false, denyT: 0,
   });
-  // consumable slot alternates between bombs and a battery
+  // consumable slot alternates between bombs and a heart; the battery took
+  // over the fixed leftmost slot from the heart
   const consumable = chance(0.5)
     ? { kind: 'bomb', name: '两颗炸弹', desc: '炸开石头和裂缝的墙!', price: 5 }
-    : { kind: 'battery', name: '电池', desc: '为主动道具充能一层!', price: 4 };
+    : { kind: 'heart', name: '红心', desc: '回复一颗心!', price: 5 };
   // second item slot sometimes stocks an active item instead
   const slot2 = chance(0.35)
     ? { kind: 'active', def: pick(ACTIVE_DEFS), price: base + 5 }
     : { kind: 'item', def: defs[1], price: base + 5 };
   room.shopItems = [
-    ware({ kind: 'heart', name: '红心', desc: '回复一颗心!', price: 3 }, 0),
+    ware({ kind: 'battery', name: '电池', desc: '为主动道具充能一层!', price: 2 }, 0),
     ware(consumable, 1),
     ware({ kind: 'item', def: defs[0], price: base }, 2),
     ware(slot2, 3),

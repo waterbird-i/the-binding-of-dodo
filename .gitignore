@@ -3,3 +3,8 @@ __MACOSX/
 .playtest/
 .playwright-cli/
 .popo.json
+
+# popo runtime 数据探测的本地产物，与游戏本体无关
+popo-runtime-schemas.json
+runtime-probe-result.png
+runtime-probe/

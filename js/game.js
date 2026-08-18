@@ -97,9 +97,13 @@ canvas.setAttribute('tabindex', '-1');
 canvas.style.outline = 'none';
 canvas.focus();
 window.addEventListener('pointerdown', () => canvas.focus());
-canvas.addEventListener('pointerdown', () => {
+canvas.addEventListener('pointerdown', e => {
   SFX.unlock();
-  if (G.paused) { setPaused(false); return; }
+  if (G.paused) {
+    // the pause overlay has one clickable region: the changelog doc link
+    if (pauseDocLinkHit(e)) { window.open(LB_DOC_URL, '_blank'); return; }
+    setPaused(false); return;
+  }
   if (G.state !== 'play') confirmScreen();
 });
 
@@ -115,6 +119,8 @@ function confirmScreen() {
 let devIdx = -1;
 function toggleDev() {
   G.dev = !G.dev;
+  // a run touched by dev mode (immunity / free items) never posts to the leaderboard
+  if (G.dev && G.state === 'play') G.devTainted = true;
   G.toast = { title: G.dev ? '开发者模式 开' : '开发者模式 关',
     desc: G.dev ? '[ / ] 逐个试道具　·　无敌　·　P 看面板' : '恢复正常游戏', t: 2.4 };
   SFX.item();
@@ -142,6 +148,7 @@ function setPaused(on) {
   if (on) {
     G.pauseStart = performance.now();
     releaseInput();
+    lbRefresh(false);   // warm up the leaderboard panel (no-op when offline)
     SFX.pause(true);
   } else {
     // don't let paused wall-clock time count toward the run timer
@@ -297,6 +304,8 @@ function startRun() {
   G.paused = false;
   G.stats = { kills: 0, items: 0, startTime: performance.now(), time: 0 };
   G.toast = null;
+  G.devTainted = false;
+  LB.submitState = null;
   loadFloor();
   G.state = 'play';
   SFX.start();
@@ -430,7 +439,7 @@ function onRoomCleared(room) {
   const cy = clamp(G.player.y, FLOOR_Y + 60, FLOOR_Y + FLOOR_H - 60);
   if (roll < 0.12) room.pickups.push(makePickup('chest', W / 2, H / 2));
   else if (roll < 0.3) room.pickups.push(makePickup('coin', cx, cy - 50));
-  else if (roll < 0.42) room.pickups.push(makePickup('halfheart', cx, cy - 50));
+  else if (roll < 0.36) room.pickups.push(makePickup('halfheart', cx, cy - 50));
   else if (roll < 0.5) room.pickups.push(makePickup('bomb', cx, cy - 50));
   else if (roll < 0.56) room.pickups.push(makePickup('battery', cx, cy - 50));
 }
@@ -453,6 +462,7 @@ function onBossKilled(Gm, boss) {
   if (Gm.floorNum >= FLOOR_COUNT) {
     Gm.stats.time = (performance.now() - Gm.stats.startTime) / 1000;
     Gm.state = 'win';
+    if (!Gm.devTainted) lbSubmitWin(Gm.stats.time);
     SFX.win();
   } else {
     room.trapdoor = { x: W / 2, y: H / 2 };
@@ -1219,6 +1229,14 @@ function renderStatsPaper(dead) {
   if (dead) {
     // the small sad line, in teary blue-gray pencil
     drawCrayonText(ctx, '眼泪流干了，也还是没能走出去', 0, 138, 16, '#7b8794', 999, { spacing: 1 });
+  } else if (LB.submitState) {
+    const msg = {
+      saving: '成绩上传中…',
+      best: '新纪录! 已登上排行榜，暂停可查看',
+      kept: '没打破你的最佳成绩，榜单保持不变',
+      failed: '成绩上传失败了，下次通关再试吧',
+    }[LB.submitState];
+    drawCrayonText(ctx, msg, 0, 138, 16, '#5f7a4a', 999, { spacing: 1 });
   }
 
   const blink = Math.sin(performance.now() / 300) > -0.3;
@@ -1231,6 +1249,54 @@ function renderDeath() { renderStatsPaper(true); }
 function renderWin() { renderStatsPaper(false); }
 
 // ---------------- pause overlay ----------------
+// Clickable region for the changelog / manual link at the bottom of the overlay.
+const PAUSE_DOC_RECT = { x: W / 2 - 200, y: H - 36, w: 400, h: 32 };
+function pauseDocLinkHit(e) {
+  const r = canvas.getBoundingClientRect();
+  const cx = (e.clientX - r.left) * (W / r.width);
+  const cy = (e.clientY - r.top) * (H / r.height);
+  return cx >= PAUSE_DOC_RECT.x && cx <= PAUSE_DOC_RECT.x + PAUSE_DOC_RECT.w &&
+         cy >= PAUSE_DOC_RECT.y && cy <= PAUSE_DOC_RECT.y + PAUSE_DOC_RECT.h;
+}
+
+function lbTimeStr(ms) {
+  const sec = ms / 1000;
+  const m = Math.floor(sec / 60), s = sec - m * 60;
+  return m + ':' + (s < 10 ? '0' : '') + s.toFixed(1);
+}
+
+// Right-hand pause panel: fastest-clear leaderboard from popo Runtime data.
+function renderLeaderboardPanel(rx, py, rw) {
+  ctx.font = '14px Trebuchet MS';
+  ctx.textAlign = 'center';
+  const hint = msg => {
+    ctx.fillStyle = 'rgba(200,186,158,0.6)';
+    ctx.fillText(msg, rx + rw / 2, py + 96);
+  };
+  if (!LB.sdkPresent) { hint('排行榜仅在线上版可用'); return; }
+  if (!LB.available) { hint('排行榜连接中…'); return; }
+  if (!LB.rows) { hint(LB.error ? '排行榜加载失败' : '加载中…'); return; }
+  if (!LB.rows.length) { hint('还没有人通关，冲第一个!'); return; }
+
+  const meName = LB.me && LB.me.userName;
+  const rowH = 27;
+  ctx.font = '15px Trebuchet MS';
+  const drawRow = (rank, row, y) => {
+    const self = row.player === meName;
+    ctx.fillStyle = self ? '#f4c95d' : (rank === 1 ? '#e8b64a' : 'rgba(216,204,176,0.85)');
+    ctx.textAlign = 'left';
+    ctx.fillText(rank + '.', rx + 26, y);
+    ctx.fillText(row.player + (self ? ' (我)' : ''), rx + 62, y);
+    ctx.textAlign = 'right';
+    ctx.fillText(lbTimeStr(row.timeMs), rx + rw - 26, y);
+  };
+  const top = LB.rows.slice(0, 8);
+  top.forEach((row, i) => drawRow(i + 1, row, py + 18 + i * rowH));
+  // own rank still shows when outside the top 8
+  const myIdx = meName ? LB.rows.findIndex(r => r.player === meName) : -1;
+  if (myIdx >= 8) drawRow(myIdx + 1, LB.rows[myIdx], py + 18 + 8 * rowH);
+}
+
 function renderPause() {
   const p = G.player;
   ctx.save();
@@ -1245,7 +1311,7 @@ function renderPause() {
   ctx.fillStyle = '#e8dcc0';
   ctx.fillText('暂 停', W / 2, 132);
 
-  // stat panel: the six attributes plus current tear mods
+  // two panels side by side: attribute sheet (left) + leaderboard (right)
   const rows = [
     ['生命', Math.ceil(p.hp / 2) + ' / ' + Math.ceil(p.maxHp / 2) + ' 心'],
     ['攻击力', p.damage.toFixed(1)],
@@ -1254,16 +1320,20 @@ function renderPause() {
     ['射程', Math.round(p.range)],
     ['移速', Math.round(p.moveSpeed)],
   ];
-  const px = W / 2 - 190, py = 186, rowH = 30;
+  const rowH = 30, boxY = 152, boxH = rows.length * rowH + 96;
+  const lx = 44, lw = 432, px = lx + 26, py = boxY + 34;
+  const rx = 500, rw = 416;
   ctx.fillStyle = 'rgba(20,14,10,0.72)';
   ctx.strokeStyle = '#3b2c1d';
   ctx.lineWidth = 3;
-  ctx.beginPath(); ctx.rect(px - 26, py - 34, 432, rows.length * rowH + 96); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.rect(lx, boxY, lw, boxH); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.rect(rx, boxY, rw, boxH); ctx.fill(); ctx.stroke();
 
   ctx.font = 'bold 15px Trebuchet MS';
   ctx.textAlign = 'left';
   ctx.fillStyle = 'rgba(232,220,192,0.55)';
   ctx.fillText(FLOOR_NAMES[G.floorNum - 1] + '　第 ' + G.floorNum + ' / ' + FLOOR_COUNT + ' 层', px, py - 12);
+  ctx.fillText('最速通关榜', rx + 26, py - 12);
   rows.forEach(([k, v], i) => {
     const y = py + 18 + i * rowH;
     ctx.fillStyle = 'rgba(216,204,176,0.8)';
@@ -1276,59 +1346,52 @@ function renderPause() {
     ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(px, y + 8); ctx.lineTo(px + 380, y + 8); ctx.stroke();
   });
-
-  // tear / body modifiers granted by items
-  const mods = [];
-  if (p.laser) mods.push('血腥激光');
-  if (p.multishot > 1) mods.push(p.multishot + ' 连发');
-  // laser runs relabel the converted tear mods so the player sees the payoff
-  if (p.homing) mods.push(p.laser ? '光束追踪' : '追踪');
-  if (p.piercing) mods.push(p.laser ? '穿透(化为增伤)' : '穿透');
-  if (p.bounce) mods.push(p.laser ? '光束反射' : '弹跳');
-  if (p.explosive) mods.push(p.laser ? '末端爆炸' : '爆炸');
-  if (p.poison) mods.push('中毒');
-  if (p.slowOnHit) mods.push('减速');
-  if (p.spectral) mods.push(p.laser ? '幽灵(化为增伤)' : '幽灵弹');
-  if (p.split > 0) mods.push(p.laser ? '末端分裂' : '落地分裂');
-  if (p.tearAura > 0) mods.push(p.laser ? '灼烧光束' : '伤害光环');
-  if (p.distGrow > 0) mods.push('远程增伤');
-  if (p.distShrink > 0) mods.push('近程增伤');
-  if (p.shieldMax > 0) mods.push('神圣护盾');
-  if (p.dmgReduce > 0) mods.push('减伤');
-  if (p.crit > 0) mods.push('暴击 ' + Math.round(p.crit * 100) + '%');
-  if (p.orbitals > 0) mods.push('环绕泪 ×' + p.orbitals);
-  if (p.familiars > 0) mods.push('跟随物 ×' + p.familiars);
-  if (p.contactDamage > 0) mods.push('接触伤害');
-  if (p.vampirism > 0) mods.push('吸血');
-  if (p.extraLives > 0) mods.push('复活 ×' + p.extraLives);
+  // run summary sits at the bottom of the left panel
   ctx.textAlign = 'center';
   ctx.font = '14px Trebuchet MS';
   ctx.fillStyle = 'rgba(200,186,158,0.75)';
-  ctx.fillText(mods.length ? mods.join(' · ') : '尚无特殊效果', W / 2, py + 24 + rows.length * rowH);
-  ctx.fillStyle = 'rgba(200,186,158,0.55)';
   ctx.fillText('道具 ' + G.stats.items + ' 件　击杀 ' + G.stats.kills + '　金币 ' + p.coins +
-    '　时间 ' + fmtTime(G.stats.time), W / 2, py + 48 + rows.length * rowH);
+    '　时间 ' + fmtTime(G.stats.time), lx + lw / 2, py + 36 + rows.length * rowH);
 
-  // taken item icons
-  if (p.itemsTaken.length) {
-    const per = 14;
-    const shown = p.itemsTaken.slice(-per);
-    const startX = W / 2 - (shown.length - 1) * 15;
-    shown.forEach((id, i) => {
-      const def = ITEM_BY_ID[id];
-      if (!def) return;
-      ctx.save();
-      ctx.translate(startX + i * 30, H - 108);
-      ctx.scale(0.78, 0.78);
-      drawItemIcon(ctx, 0, 0, def);
-      ctx.restore();
-    });
+  renderLeaderboardPanel(rx, py, rw);
+
+  // taken items: every icon, no names — wrapped and shrunk so any count fits
+  const taken = p.itemsTaken;
+  if (taken.length) {
+    const rowsN = taken.length > 29 ? 2 : 1;
+    const cols = Math.ceil(taken.length / rowsN);
+    const gap = Math.min(30, (W - 100) / Math.max(cols - 1, 1));
+    const scale = clamp(gap / 38, 0.42, 0.78);
+    const gridY = rowsN === 2 ? 452 : 466;
+    for (let r = 0; r < rowsN; r++) {
+      const rowItems = taken.slice(r * cols, (r + 1) * cols);
+      const startX = W / 2 - ((rowItems.length - 1) * gap) / 2;
+      rowItems.forEach((id, c) => {
+        const def = ITEM_BY_ID[id];
+        if (!def) return;
+        ctx.save();
+        ctx.translate(startX + c * gap, gridY + r * 34);
+        ctx.scale(scale, scale);
+        drawItemIcon(ctx, 0, 0, def);
+        ctx.restore();
+      });
+    }
   }
 
   ctx.textAlign = 'center';
   ctx.font = 'bold 19px Georgia';
   ctx.fillStyle = Math.sin(G.pauseAnim * 4) > -0.3 ? '#efe6d2' : 'rgba(239,230,210,0.3)';
-  ctx.fillText('按 P 继续　·　切换窗口会自动暂停', W / 2, H - 54);
+  ctx.fillText('按 P 继续　·　切换窗口会自动暂停', W / 2, H - 46);
+
+  // changelog / manual doc link (the one clickable spot on this overlay)
+  const link = '更新日志与玩法说明 · 点这里查看';
+  ctx.font = '15px Trebuchet MS';
+  ctx.fillStyle = '#8fb8dd';
+  ctx.fillText(link, W / 2, H - 16);
+  const tw = ctx.measureText(link).width;
+  ctx.strokeStyle = 'rgba(143,184,221,0.55)';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(W / 2 - tw / 2, H - 12); ctx.lineTo(W / 2 + tw / 2, H - 12); ctx.stroke();
   ctx.restore();
 }
 
