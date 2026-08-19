@@ -82,6 +82,7 @@ function unlockArtFn(u) {
     const def = ITEM_BY_ID[u.id];
     return g => { g.scale(1.1, 1.1); drawItemIcon(g, 0, 0, def); };
   }
+  if (u.kind === 'boss') return g => drawDumateBody(g, 24, 0, {});
   const c = CHAR_DEFS.find(ch => ch.unlock === u.id);
   const prev = makePlayer(c.id).appearance;
   return g => {
@@ -107,7 +108,10 @@ function renderUnlockPanel() {
   ctx.fillText('已解锁 ' + done + ' / ' + UNLOCK_DEFS.length
     + '　·　达成条件的瞬间立即获得道具，之后的冒险需在地牢中寻获', W / 2, 82);
 
-  const colW = 440, rowH = 88, x0 = (W - colW * 2 - 20) / 2, y0 = 100;
+  // 行高随条目数收缩：加入 dumate 后共 11 条（6 行）也要塞进一屏
+  const colW = 440, x0 = (W - colW * 2 - 20) / 2, y0 = 100;
+  const rowH = Math.min(88, Math.floor((H - y0 - 36) / Math.ceil(UNLOCK_DEFS.length / 2)));
+  const fs = Math.min(56, rowH - 22);   // 图标框边长
   UNLOCK_DEFS.forEach((u, i) => {
     const x = x0 + (i % 2) * (colW + 20), y = y0 + Math.floor(i / 2) * rowH;
     const has = metaHas(u.id);
@@ -116,24 +120,28 @@ function renderUnlockPanel() {
     ctx.lineWidth = 2.5;
     ctx.beginPath(); ctx.rect(x, y, colW, rowH - 10); ctx.fill(); ctx.stroke();
     ctx.strokeStyle = has ? '#c9a437' : '#3a3128';
-    ctx.strokeRect(x + 12, y + 11, 56, 56);
-    drawUnlockArt(unlockArtFn(u), x + 40, y + 39, has);
-    const tx = x + 84;
+    ctx.strokeRect(x + 12, y + Math.round((rowH - 10 - fs) / 2), fs, fs);
+    drawUnlockArt(unlockArtFn(u), x + 12 + fs / 2, y + Math.round((rowH - 10) / 2), has);
+    const tx = x + 24 + fs;
+    const y1 = y + Math.round(rowH * 0.27), y2 = y + Math.round(rowH * 0.51), y3 = y + Math.round(rowH * 0.73);
     ctx.textAlign = 'left';
     ctx.font = 'bold 16px Georgia';
     ctx.fillStyle = has ? '#f4d03f' : 'rgba(150,138,118,0.85)';
-    ctx.fillText(u.label + (u.kind === 'char' ? '（角色）' : ''), tx, y + 25);
+    ctx.fillText(u.label + (u.kind === 'char' ? '（角色）' : u.kind === 'boss' ? '（隐藏Boss）' : ''), tx, y1);
     ctx.font = '12px Trebuchet MS';
     ctx.fillStyle = has ? 'rgba(216,204,176,0.9)' : 'rgba(140,128,110,0.7)';
     const info = u.kind === 'item' ? (ITEM_BY_ID[u.id] || {}).desc
-      : (CHAR_DEFS.find(ch => ch.unlock === u.id) || {}).desc;
-    ctx.fillText(info || '', tx, y + 45);
+      : u.kind === 'char' ? (CHAR_DEFS.find(ch => ch.unlock === u.id) || {}).desc
+        : u.desc;
+    ctx.fillText(info || '', tx, y2);
     ctx.fillStyle = has ? 'rgba(160,200,130,0.9)' : 'rgba(150,138,118,0.8)';
-    ctx.fillText((has ? '已解锁　·　' : '解锁条件　') + u.how, tx, y + 64);
+    // 隐藏 Boss 的解锁条件在首次通关前保密——「每位 dodo / MEGA dodo」直接剧透终局
+    const how = u.kind === 'boss' && !has && META.totals.wins < 1 ? '???' : u.how;
+    ctx.fillText((has ? '已解锁　·　' : '解锁条件　') + how, tx, y3);
     ctx.textAlign = 'right';
     ctx.font = 'bold 12px Trebuchet MS';
     ctx.fillStyle = has ? '#c9a437' : 'rgba(110,100,86,0.8)';
-    ctx.fillText(has ? '已解锁' : '未解锁', x + colW - 12, y + 25);
+    ctx.fillText(has ? '已解锁' : '未解锁', x + colW - 12, y1);
     ctx.textAlign = 'left';
   });
 
@@ -175,15 +183,16 @@ function renderUnlockPopups() {
   ctx.textAlign = 'left';
   ctx.font = 'bold 15px Trebuchet MS';
   ctx.fillStyle = '#c9a437';
-  ctx.fillText(u.kind === 'char' ? '新角色解锁！' : '新道具解锁！', tx, cy0 + 26);
+  ctx.fillText(u.kind === 'char' ? '新角色解锁！' : u.kind === 'boss' ? '终极猎手！' : '新道具解锁！', tx, cy0 + 26);
   ctx.font = 'bold 19px Georgia';
   ctx.fillStyle = '#f3ecd8';
   ctx.fillText(u.label, tx, cy0 + 50);
   ctx.font = '13px Trebuchet MS';
   ctx.fillStyle = 'rgba(216,204,176,0.85)';
   const tail = u.kind === 'char' ? '选人界面已可选用'
-    : pop.granted ? '已立即获得！之后的冒险需在地牢中寻获'
-      : '已加入道具池，之后的冒险中可能出现';
+    : u.kind === 'boss' ? '你已站上地牢之巅'
+      : pop.granted ? '已立即获得！之后的冒险需在地牢中寻获'
+        : '已加入道具池，之后的冒险中可能出现';
   ctx.fillText(u.how + '　达成　·　' + tail, tx, cy0 + 74);
   ctx.restore();
 }

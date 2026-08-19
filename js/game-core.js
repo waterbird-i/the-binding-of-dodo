@@ -14,7 +14,7 @@ const FLOOR_NAMES = [
 const BRANCH_FLOORS = { 4: true, 8: true };
 
 const G = {
-  state: 'menu',          // menu | play | dead | win
+  state: 'menu',          // menu | play | dead | win | dumateOffer
   paused: false,
   pauseAnim: 0,
   pauseStart: 0,
@@ -54,6 +54,8 @@ const G = {
   runSeed: 0,             // numeric form driving floor generation
   pendingSeedStr: null,   // seed typed on the menu, applied to the next run
   floorCurse: null,       // null | 'darkness' | 'lost' | 'unknown'
+  dumateOffer: null,      // {sel, megaHp, openedAt} — 击杀 MEGA dodo 后的终极抉择
+  dumateWin: false,       // 本局是击败 dumate 后通关的
 };
 
 // floor curses: one may strike each floor from floor 2 on, making runs
@@ -120,6 +122,12 @@ window.addEventListener('keydown', e => {
     useActiveItem();
     return;
   }
+  if (G.state === 'dumateOffer' && G.dumateOffer &&
+      (e.code === 'ArrowLeft' || e.code === 'KeyA' || e.code === 'ArrowRight' || e.code === 'KeyD')) {
+    G.dumateOffer.sel = 1 - G.dumateOffer.sel;
+    SFX.coin();
+    return;
+  }
   if (G.state === 'menu' && (e.code === 'ArrowLeft' || e.code === 'KeyA' || e.code === 'ArrowRight' || e.code === 'KeyD')) {
     menuSelectChar((e.code === 'ArrowLeft' || e.code === 'KeyA') ? -1 : 1);
     return;
@@ -167,6 +175,12 @@ canvas.addEventListener('pointerdown', e => {
     }
     return;
   }
+  if (G.state === 'dumateOffer') {
+    const pos = canvasXY(e);
+    const hit = dumateOfferHit(pos.x, pos.y);
+    if (hit >= 0 && G.dumateOffer) { G.dumateOffer.sel = hit; resolveDumateOffer(hit === 0); }
+    return;
+  }
   if (G.state === 'menu') {
     if (G.unlockPanel) { G.unlockPanel = false; return; }
     const pos = canvasXY(e);
@@ -197,6 +211,10 @@ function toggleCodex() {
 }
 
 function confirmScreen() {
+  if (G.state === 'dumateOffer') {
+    resolveDumateOffer(!!G.dumateOffer && G.dumateOffer.sel === 0);
+    return;
+  }
   if (G.state === 'menu' && G.unlockPanel) { G.unlockPanel = false; return; }
   if (G.state === 'menu' && charLocked(CHAR_DEFS[G.charIdx])) {
     G.menuDeny = 1.2;   // flash the unlock condition instead of starting

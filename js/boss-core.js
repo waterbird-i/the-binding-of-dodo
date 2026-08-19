@@ -100,6 +100,19 @@ const BOSS_DEFS = [
 const FINAL_BOSS_DEF = BOSS_DEFS[BOSS_DEFS.length - 1];
 function bossDefForFloor(depth) { return BOSS_DEFS[clamp(depth, 1, 12) - 1]; }
 
+// ---- dumate：隐藏终极 Boss（不进 BOSS_DEFS 序列，不占任何楼层）----
+// 登场条件与流程见 js/game-flow.js：全部角色通关后，击杀 MEGA dodo 时可选
+// 挑战。血量在登场时按「本局 MEGA dodo 实战血量 × 20」写入，这里的 hp 只是
+// 兜底数值；gapMul 把出招间隔压到常规 Boss 的 2/3，配合更大的副技能编制
+// （平时主 + 2 副，狂暴主 + 3 副），压迫感全面高于 MEGA dodo。
+const DUMATE_DEF = {
+  id: 'dumate', name: 'dumate', hp: 800000, r: 60, touchDamage: 5,
+  final: true, dumate: true, gapMul: 0.65,
+  form: 'dumate', move: 'hover', pal: { skin: '#8f9df5', dark: '#4552c9' },
+  features: { eyes: 2 },
+  attacks: ['forkStorm', 'byteRain', 'gravityWell', 'firewallGrid', 'mirrorPhantoms', 'overwrite'],
+};
+
 // Rough per-second output of the current build, assuming shots land.
 // Used to size boss hp so the fight can't collapse in a few seconds.
 function estimatePlayerDPS(p) {
@@ -193,7 +206,7 @@ function updateBossAI(G, e, dt) {
       e.atk = null;
       e.casts = null;
       e.primaryDone = false;
-      e.t = rand(0.7, 1.4) * (e.rage ? 0.6 : 1);
+      e.t = rand(0.7, 1.4) * (e.rage ? 0.6 : 1) * (e.def.gapMul || 1);
     }
   }
 }
@@ -205,12 +218,17 @@ function updateBossAI(G, e, dt) {
 // patterns qualify as side casts; body-movers stay primary-only, and the
 // full-screen apocalypse always casts alone so the safe pocket stays honest.
 const FINAL_SIDE_POOL = ['windmill', 'eggBombs', 'megaBeam'];
+// dumate 的副技能池同样只收纯弹幕；镜像分身要操纵本体、防火墙矩阵要挪动
+// 激光阵，都只当主技能；全屏「格式化」和天启一样独占施放。
+const DUMATE_SIDE_POOL = ['forkStorm', 'byteRain', 'gravityWell'];
+const SOLO_CAST = { apocalypse: true, overwrite: true };
 function startSideCasts(e) {
   e.primaryDone = false;
   e.casts = null;
-  if (e.atk === 'apocalypse') return;
-  const pool = FINAL_SIDE_POOL.filter(a => a !== e.atk);
-  const n = Math.min(pool.length, e.rage ? 2 : 1);
+  if (SOLO_CAST[e.atk]) return;
+  const base = e.def.dumate ? DUMATE_SIDE_POOL : FINAL_SIDE_POOL;
+  const pool = base.filter(a => a !== e.atk);
+  const n = Math.min(pool.length, e.def.dumate ? (e.rage ? 3 : 2) : (e.rage ? 2 : 1));
   pool.sort(() => Math.random() - 0.5);
   e.casts = pool.slice(0, n).map(atk => ({
     atk, done: false,
@@ -275,9 +293,11 @@ function bossShot(G, e, a, sp, r, dmg, bounces) {
 function bossShotFrom(G, x, y, a, sp, r, dmg, bounces) {
   // deep-floor bosses hit harder with every bullet
   const boost = (G.floorNum || 1) >= 9 ? 1 : 0;
+  // dumate 战期间的所有弹幕都是它打出的：标记 du，渲染时走本体蓝紫配色
+  const du = !!(G.room && G.room.bossDef && G.room.bossDef.dumate);
   G.eshots.push({
     x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
-    r, dmg: (dmg || 1) + boost, bounces: bounces || 0, dead: false,
+    r, dmg: (dmg || 1) + boost, bounces: bounces || 0, dead: false, du,
   });
 }
 function aimAt(e, p) { return Math.atan2(p.y - e.y, p.x - e.x); }

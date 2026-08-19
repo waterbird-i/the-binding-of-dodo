@@ -248,11 +248,12 @@ function drawEnemyShot(g, s) {
   g.save();
   g.fillStyle = 'rgba(0,0,0,0.22)';
   g.beginPath(); g.ellipse(s.x, s.y + 12, s.r * 0.9, s.r * 0.4, 0, 0, TAU); g.fill();
-  g.fillStyle = '#b3241a';
-  g.strokeStyle = '#5c0f09';
+  // s.du：dumate 的弹幕用它本体的蓝紫配色，其余敌弹保持血红
+  g.fillStyle = s.du ? '#8f9df5' : '#b3241a';
+  g.strokeStyle = s.du ? '#4552c9' : '#5c0f09';
   g.lineWidth = 2.5;
   g.beginPath(); g.arc(s.x, s.y, s.r, 0, TAU); g.fill(); g.stroke();
-  g.fillStyle = 'rgba(255,160,150,0.8)';
+  g.fillStyle = s.du ? 'rgba(228,234,255,0.85)' : 'rgba(255,160,150,0.8)';
   g.beginPath(); g.arc(s.x - s.r * 0.3, s.y - s.r * 0.3, s.r * 0.25, 0, TAU); g.fill();
   g.restore();
 }
@@ -581,9 +582,19 @@ function drawVis(g, e) {
 const ENEMY_LASER = {
   bright: 'rgba(196,130,255,0.95)',
   fade: 'rgba(90,40,150,0.12)',
+  mid: 'rgba(110,50,180,0.35)',
   core: 'rgba(240,225,255,0.9)',
   glow: '#5b2a8e',
   warn: 'rgba(168,92,235,',
+};
+// dumate 的激光沿用它本体的蓝紫渐变（laser 上带 du 标记时启用）
+const DUMATE_LASER = {
+  bright: 'rgba(143,157,245,0.95)',
+  fade: 'rgba(69,82,201,0.12)',
+  mid: 'rgba(69,82,201,0.35)',
+  core: 'rgba(235,240,255,0.9)',
+  glow: '#4552c9',
+  warn: 'rgba(143,157,245,',
 };
 
 // hitscan beam: hot core with a soft glow, fades over its short life
@@ -631,27 +642,28 @@ function drawBeam(g, b) {
 // sustained enemy laser: dashed warning line while warming, then a fat
 // pulsing purple beam that stays on screen and sweeps
 function drawLaser(g, l) {
+  const P = l.du ? DUMATE_LASER : ENEMY_LASER;
   g.save();
   g.translate(l.x, l.y);
   g.rotate(l.angle);
   if (l.warm > 0) {
     g.setLineDash([12, 9]);
-    g.strokeStyle = ENEMY_LASER.warn + (0.35 + 0.4 * Math.abs(Math.sin(l.anim * 14))) + ')';
+    g.strokeStyle = P.warn + (0.35 + 0.4 * Math.abs(Math.sin(l.anim * 14))) + ')';
     g.lineWidth = 3;
     g.beginPath(); g.moveTo(0, 0); g.lineTo(l.len, 0); g.stroke();
     g.setLineDash([]);
   } else {
     const w = l.w * (0.85 + 0.15 * Math.sin(l.anim * 22));
     const grad = g.createLinearGradient(0, 0, l.len, 0);
-    grad.addColorStop(0, ENEMY_LASER.bright);
-    grad.addColorStop(1, 'rgba(110,50,180,0.35)');
+    grad.addColorStop(0, P.bright);
+    grad.addColorStop(1, P.mid);
     g.fillStyle = grad;
     g.fillRect(0, -w / 2, l.len, w);
-    g.fillStyle = ENEMY_LASER.core;
+    g.fillStyle = P.core;
     g.fillRect(0, -w * 0.2, l.len, w * 0.4);
     // muzzle glow
     g.globalAlpha = 0.6;
-    g.fillStyle = ENEMY_LASER.glow;
+    g.fillStyle = P.glow;
     g.beginPath(); g.arc(0, 0, w * 1.1, 0, TAU); g.fill();
   }
   g.restore();

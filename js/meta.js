@@ -8,6 +8,7 @@ const META_KEY = 'dodo_meta_v1';
 const META = {
   totals: { kills: 0, deaths: 0, wins: 0 },
   unlocked: {},          // unlock id -> true
+  charWins: {},          // char id -> true, 该角色击杀过一次 MEGA dodo
   selChar: 'dodo',       // last character picked on the menu
 };
 
@@ -18,13 +19,14 @@ function metaLoad() {
     const d = JSON.parse(raw);
     if (d && d.totals) Object.assign(META.totals, d.totals);
     if (d && d.unlocked) Object.assign(META.unlocked, d.unlocked);
+    if (d && d.charWins) Object.assign(META.charWins, d.charWins);
     if (d && typeof d.selChar === 'string') META.selChar = d.selChar;
   } catch (e) { /* blocked storage (incognito): play without persistence */ }
 }
 function metaSave() {
   try {
     localStorage.setItem(META_KEY, JSON.stringify(
-      { totals: META.totals, unlocked: META.unlocked, selChar: META.selChar }));
+      { totals: META.totals, unlocked: META.unlocked, charWins: META.charWins, selChar: META.selChar }));
   } catch (e) { /* ignore */ }
 }
 metaLoad();
@@ -77,6 +79,11 @@ const CHAR_DEFS = [
 const CHAR_BY_ID = {};
 for (const c of CHAR_DEFS) CHAR_BY_ID[c.id] = c;
 
+// 隐藏终极 Boss dumate 的解锁条件：每个角色都击杀过一次 MEGA dodo
+// （记入 charWins，种子局 / 开发者模式不计）。条件达成后，之后每次击杀
+// MEGA dodo 都会弹出终极抉择——见 js/game-flow.js 的 openDumateOffer。
+function allCharsCleared() { return CHAR_DEFS.every(c => META.charWins[c.id]); }
+
 // ---------------- unlock table ----------------
 // kind 'item': stays out of every random item pool until earned.
 // kind 'char': stays greyed out on the menu until earned.
@@ -93,6 +100,8 @@ const UNLOCK_DEFS = [
   { id: 'char_dark',    kind: 'char', label: '暗黑 dodo', how: '通关一次',              test: t => t.wins >= 1 },
   { id: 'char_lost',    kind: 'char', label: '迷失 dodo', how: '累计死亡 25 次',        test: t => t.deaths >= 25 },
   { id: 'char_gambler', kind: 'char', label: '赌徒 dodo', how: '单局同时持有 25 金币',  on: 'coins_25' },
+  { id: 'boss_dumate',  kind: 'boss', label: 'dumate',    how: '让每一位 dodo 都击败 MEGA dodo，然后接受终极挑战并获胜', on: 'dumate_win',
+    desc: '你的眼泪不过是一次又一次否认现实' },
 ];
 const ITEM_UNLOCKS = {};   // item id -> unlock def (items gated behind meta progress)
 for (const u of UNLOCK_DEFS) if (u.kind === 'item') ITEM_UNLOCKS[u.id] = u;

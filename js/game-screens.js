@@ -107,6 +107,9 @@ function fmtTime(sec) {
 // End-of-run screens: a page torn from a kid's sketchbook — wobbly crayon
 // borders, every glyph hand-jittered (seeds are fixed so nothing shimmers).
 function renderStatsPaper(dead) {
+  // 讨伐 dumate 成功的一局也走这里：账按通关记，纸却是死亡样式——
+  // 它认下了你的胜利，但没放你走（见 game-flow.js 的斩杀演出）
+  const executed = !dead && G.dumateWin;
   ctx.save();
   ctx.fillStyle = 'rgba(0,0,0,0.74)';
   ctx.fillRect(0, 0, W, H);
@@ -131,7 +134,7 @@ function renderStatsPaper(dead) {
   ctx.fill(); ctx.stroke();
 
   // crayon double border, like a kid framing their drawing
-  const borderCol = dead ? '#b8432e' : '#d8a02a';
+  const borderCol = dead ? '#b8432e' : (executed ? '#5f6ee9' : '#d8a02a');
   const brng = mulberry32(dead ? 77 : 88);
   const bx = pw / 2 - 22, by = ph / 2 - 22;
   drawCrayonLine(ctx, -bx, -by, bx, -by, brng, borderCol, 3);
@@ -139,9 +142,10 @@ function renderStatsPaper(dead) {
   drawCrayonLine(ctx, bx, by, -bx, by, brng, borderCol, 3);
   drawCrayonLine(ctx, -bx, by, -bx, -by, brng, borderCol, 3);
 
-  // title
-  drawCrayonText(ctx, dead ? '你死了' : '通关啦!', 0, -ph / 2 + 72, 52,
-    dead ? '#b8432e' : '#c77f21', dead ? 314 : 217, { spacing: 10 });
+  // title（讨伐 dumate 归来的那张纸也写着「你死了」，只是墨色是它的蓝）
+  const title = (dead || executed) ? '你死了' : '通关啦!';
+  drawCrayonText(ctx, title, 0, -ph / 2 + 72, 52,
+    dead ? '#b8432e' : (executed ? '#5f6ee9' : '#c77f21'), dead ? 314 : 217, { spacing: 10 });
 
   // dodo face doodle (dead: X eyes / win: happy)
   ctx.save();
@@ -155,7 +159,7 @@ function renderStatsPaper(dead) {
   ctx.beginPath(); ctx.moveTo(2, -26); ctx.lineTo(4, -34); ctx.stroke();
   ctx.fillStyle = '#3a332b';
   ctx.beginPath(); ctx.ellipse(6, -36, 5.5, 3, -0.5, 0, TAU); ctx.fill();
-  if (dead) {
+  if (dead || executed) {
     ctx.beginPath();
     ctx.moveTo(-15, -10); ctx.lineTo(-5, 0); ctx.moveTo(-5, -10); ctx.lineTo(-15, 0);
     ctx.moveTo(15, -10); ctx.lineTo(5, 0); ctx.moveTo(5, -10); ctx.lineTo(15, 0);
@@ -204,6 +208,10 @@ function renderStatsPaper(dead) {
       '#b8860b', 424, { spacing: 1 });
   }
 
+  if (executed) {
+    drawCrayonText(ctx, '你赢下了那一战，却没能走出地牢', 0, G.newUnlocks.length ? 170 : 158, 16,
+      '#5f6ee9', 777, { spacing: 1 });
+  }
   if (dead) {
     // the small sad line, in teary blue-gray pencil
     drawCrayonText(ctx, '眼泪流干了，也还是没能走出去', 0, G.newUnlocks.length ? 150 : 138, 16, '#7b8794', 999, { spacing: 1 });
@@ -266,7 +274,9 @@ function renderLeaderboardPanel(rx, py, rw) {
     ctx.fillText(rank + '.', rx + 26, y);
     ctx.fillText(row.player + (self ? ' (我)' : ''), rx + 62, y);
     ctx.textAlign = 'right';
-    ctx.fillText(lbTimeStr(row.timeMs), rx + rw - 26, y);
+    // 讨伐过 dumate 的记录带荣誉后缀：主用时+(讨伐用时)
+    ctx.fillText(lbTimeStr(row.timeMs)
+      + (row.dumateMs ? '+(' + lbTimeStr(row.dumateMs) + ')' : ''), rx + rw - 26, y);
   };
   const top = LB.rows.slice(0, 8);
   top.forEach((row, i) => drawRow(i + 1, row, py + 18 + i * rowH));
@@ -378,6 +388,168 @@ function renderPause() {
   ctx.restore();
 }
 
+// ---------------- dumate：终极抉择界面 ----------------
+// 击杀 MEGA dodo 且全部角色都通关过之后弹出（js/game-flow.js openDumateOffer）。
+// 键盘 ←→/AD 换选项、Enter/空格确认；鼠标与触屏直接点选项框。
+const DUMATE_OFFER_BTNS = [
+  { x: W / 2 - 330, y: 392, w: 310, h: 104, label: '迎战 dumate', sub: '这座地牢轮不到它做主　战败即一无所有' },
+  { x: W / 2 + 20, y: 392, w: 310, h: 104, label: '见好就收', sub: '立即通关　成绩计入排行榜' },
+];
+function dumateOfferHit(cx, cy) {
+  for (let i = 0; i < DUMATE_OFFER_BTNS.length; i++) {
+    const b = DUMATE_OFFER_BTNS[i];
+    if (cx >= b.x && cx <= b.x + b.w && cy >= b.y && cy <= b.y + b.h) return i;
+  }
+  return -1;
+}
+
+function renderDumateOffer() {
+  const off = G.dumateOffer;
+  if (!off) return;
+  const t = performance.now() / 1000;
+  ctx.save();
+  ctx.fillStyle = 'rgba(4,4,10,0.82)';
+  ctx.fillRect(0, 0, W, H);
+  const rad = ctx.createRadialGradient(W / 2, 190, 30, W / 2, 190, 320);
+  rad.addColorStop(0, 'rgba(110,126,240,0.3)');
+  rad.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = rad;
+  ctx.fillRect(0, 0, W, H);
+  // dumate 在门口悬浮着等答复
+  ctx.save();
+  ctx.translate(W / 2, 176 + Math.sin(t * 1.6) * 6);
+  drawDumateBody(ctx, 70, t, {});
+  ctx.restore();
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 40px Georgia';
+  ctx.lineWidth = 8;
+  ctx.strokeStyle = '#05050c';
+  ctx.strokeText('dumate', W / 2, 306);
+  ctx.fillStyle = '#aab6ff';
+  ctx.fillText('dumate', W / 2, 306);
+  ctx.font = '16px Trebuchet MS';
+  ctx.fillStyle = 'rgba(216,214,236,0.9)';
+  ctx.fillText('每一位 dodo 都走出过地牢，这一次，出口前浮着一道蓝色的影子', W / 2, 338);
+  ctx.fillText('它客气地告知：这座地牢连同里面的一切，如今都归它了，包括你', W / 2, 361);
+  const ready = performance.now() - off.openedAt > 900;
+  DUMATE_OFFER_BTNS.forEach((b, i) => {
+    const sel = off.sel === i;
+    ctx.fillStyle = sel ? 'rgba(38,40,74,0.92)' : 'rgba(14,14,24,0.85)';
+    ctx.strokeStyle = sel ? (i === 0 ? '#8f9df5' : '#f4d03f') : '#33334a';
+    ctx.lineWidth = sel ? 3.5 : 2;
+    ctx.beginPath(); ctx.rect(b.x, b.y, b.w, b.h); ctx.fill(); ctx.stroke();
+    ctx.font = 'bold 24px Georgia';
+    ctx.fillStyle = sel ? '#f3ecd8' : 'rgba(200,196,214,0.75)';
+    ctx.fillText(b.label, b.x + b.w / 2, b.y + 44);
+    ctx.font = '13px Trebuchet MS';
+    ctx.fillStyle = sel ? 'rgba(216,214,236,0.9)' : 'rgba(160,156,178,0.7)';
+    ctx.fillText(b.sub, b.x + b.w / 2, b.y + 72);
+  });
+  ctx.font = 'bold 16px Georgia';
+  ctx.fillStyle = ready && Math.sin(t * 5) > -0.3 ? '#efe6d2' : 'rgba(239,230,210,0.35)';
+  ctx.fillText(IS_TOUCH ? '点击选项做出抉择' : '← → 选择　·　Enter 确认　·　也可直接点击', W / 2, H - 40);
+  ctx.restore();
+}
+
+// ---------------- dumate：斩杀特写 ----------------
+// 血条清零后 dumate 并没有死：画面压暗，它瞬移到 dodo 面前，
+// 一记斩击带走玩家。时间轴见 game-flow.js 的 updateDumateExec。
+function renderDumateExec() {
+  const ex = G.dumateExec;
+  if (!ex) return;
+  const t = ex.t;
+  ctx.save();
+  // 战场沉入黑暗
+  ctx.fillStyle = 'rgba(3,3,8,' + (clamp(t / 0.9, 0, 1) * 0.8) + ')';
+  ctx.fillRect(0, 0, W, H);
+  // 特写从 0.9s 起浮现
+  const k = clamp((t - 0.9) / 0.5, 0, 1);
+  if (k > 0) {
+    ctx.save();
+    ctx.globalAlpha = k;
+    const rad = ctx.createRadialGradient(W / 2, H / 2 - 20, 60, W / 2, H / 2 - 20, 380);
+    rad.addColorStop(0, 'rgba(110,126,240,0.28)');
+    rad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = rad;
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+
+    // dodo 特写：挨了那一击就倒下
+    const slashed = ex.slashed;
+    ctx.save();
+    ctx.globalAlpha = k;
+    ctx.translate(W / 2 - 120, H / 2 + 46);
+    ctx.scale(2.6, 2.6);
+    if (slashed) { ctx.rotate(1.25); ctx.translate(0, -6); }
+    const ap = G.player.appearance || {};
+    drawDodo(ctx, 0, 0, { walk: 0, moving: false, aimX: slashed ? 0 : 1, aimY: 0,
+      headColor: ap.headColor, eyeColor: ap.eyeColor, brow: ap.brow, hurtFlash: slashed });
+    if (slashed) {   // 蜡笔叉眼，盖在原本的瞳孔上
+      ctx.strokeStyle = '#17110c';
+      ctx.lineWidth = 2.6;
+      ctx.beginPath();
+      ctx.moveTo(-12.2, -21.5); ctx.lineTo(-5.8, -15.5);
+      ctx.moveTo(-5.8, -21.5); ctx.lineTo(-12.2, -15.5);
+      ctx.moveTo(-0.5, -20); ctx.lineTo(5.5, -14);
+      ctx.moveTo(5.5, -20); ctx.lineTo(-0.5, -14);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // dumate 特写：材质化闪烁着靠近，斩击后凑得更近
+    ctx.save();
+    ctx.globalAlpha = slashed ? 1 : k * (0.7 + 0.3 * Math.abs(Math.sin(t * 26)));
+    ctx.translate(W / 2 + 150 - (slashed ? 26 : k * 18), H / 2 - 40 + Math.sin(t * 2.2) * 5);
+    drawDumateBody(ctx, 120, t, { mouthOpen: slashed ? 0.6 : 0 });
+    ctx.restore();
+
+    if (slashed) {
+      const st = t - 1.6;
+      // 斩击闪白
+      if (st < 0.14) {
+        ctx.save();
+        ctx.globalAlpha = 1 - st / 0.14;
+        ctx.fillStyle = '#dfe6ff';
+        ctx.fillRect(0, 0, W, H);
+        ctx.restore();
+      }
+      // 斩痕划过 dodo
+      ctx.save();
+      ctx.globalAlpha = clamp(1 - st / 1.1, 0, 1);
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = '#aab6ff';
+      ctx.lineWidth = 7;
+      ctx.beginPath();
+      ctx.moveTo(W / 2 - 260, H / 2 - 150);
+      ctx.lineTo(W / 2 + 40, H / 2 + 130);
+      ctx.stroke();
+      ctx.strokeStyle = '#eef1ff';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(W / 2 - 248, H / 2 - 152);
+      ctx.lineTo(W / 2 + 52, H / 2 + 128);
+      ctx.stroke();
+      ctx.restore();
+      if (t > 2.1) {
+        ctx.save();
+        ctx.globalAlpha = clamp((t - 2.1) / 0.4, 0, 1);
+        ctx.textAlign = 'center';
+        ctx.font = 'bold 22px Georgia';
+        ctx.fillStyle = '#aab6ff';
+        ctx.fillText('它认下了你的胜利，却没打算放你走', W / 2, H - 92);
+        ctx.restore();
+      }
+    }
+  }
+  // 收尾淡出到黑，等结算纸接场
+  const fade = clamp((t - 2.5) / 0.9, 0, 1);
+  if (fade > 0) {
+    ctx.fillStyle = 'rgba(0,0,0,' + fade + ')';
+    ctx.fillRect(0, 0, W, H);
+  }
+  ctx.restore();
+}
+
 // ---------------- main loop ----------------
 let lastT = performance.now();
 function loop(t) {
@@ -385,7 +557,11 @@ function loop(t) {
   lastT = t;
   if (G.paused) G.pauseAnim += dt;
   else if (G.state === 'play') updatePlay(dt);
-  else { updateParticles(G, dt); G.shake = Math.max(0, G.shake - dt * 40); }
+  else {
+    if (G.state === 'dumateExec') updateDumateExec(dt);
+    updateParticles(G, dt);
+    G.shake = Math.max(0, G.shake - dt * 40);
+  }
   render();
   requestAnimationFrame(loop);
 }

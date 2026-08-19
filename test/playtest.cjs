@@ -20,6 +20,7 @@ const SUITES = [
   require('./suites/06-map-dungeon.cjs'),
   require('./suites/07-meta-branch.cjs'),
   require('./suites/08-endgame.cjs'),
+  require('./suites/09-dumate.cjs'),
 ];
 
 async function main() {

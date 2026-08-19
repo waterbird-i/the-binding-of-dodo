@@ -14,7 +14,8 @@ function drawBossByDef(g, e) {
   if (marks.length) {
     g.save();
     g.setLineDash([9, 7]);
-    g.strokeStyle = 'rgba(201,35,26,0.85)';
+    // dumate 的预警圈同样用本体蓝，其余 Boss 保持警戒红
+    g.strokeStyle = e.def.dumate ? 'rgba(126,140,242,0.9)' : 'rgba(201,35,26,0.85)';
     g.lineWidth = 3.5;
     for (const m of marks) {
       const mr = m.r != null ? m.r : e.r + 30;
@@ -156,6 +157,65 @@ function drawBossTeeth(g, e) {
     g.lineTo(i * tw / 3, r * 0.3 - mo * 2);
     g.closePath(); g.fill();
   }
+}
+
+// ---- dumate：参考形象——蓝紫渐变的圆角方块笑脸 ----
+// Boss 形态、终极抉择界面和解锁图鉴共用这一个绘制函数。
+function drawDumateBody(g, r, t, o) {
+  o = o || {};
+  const c = r * 0.46;                          // 圆角半径
+  g.save();
+  g.rotate(-0.08 + Math.sin(t * 1.7) * 0.05);
+  let fill;
+  if (o.flash) fill = '#ffffff';
+  else {
+    fill = g.createLinearGradient(-r, -r, r, r);
+    fill.addColorStop(0, '#c3cdfb');
+    fill.addColorStop(0.45, '#8f9df5');
+    fill.addColorStop(1, '#5f6ee9');
+  }
+  g.fillStyle = fill;
+  g.strokeStyle = PAL.outline;
+  g.lineWidth = Math.max(3, r * 0.1);
+  g.lineJoin = 'round';
+  g.beginPath();
+  g.moveTo(-r + c, -r);
+  g.lineTo(r - c, -r); g.quadraticCurveTo(r, -r, r, -r + c);
+  g.lineTo(r, r - c); g.quadraticCurveTo(r, r, r - c, r);
+  g.lineTo(-r + c, r); g.quadraticCurveTo(-r, r, -r, r - c);
+  g.lineTo(-r, -r + c); g.quadraticCurveTo(-r, -r, -r + c, -r);
+  g.closePath();
+  g.fill(); g.stroke();
+  // 顶部高光
+  g.fillStyle = 'rgba(255,255,255,0.35)';
+  g.beginPath(); g.ellipse(-r * 0.42, -r * 0.5, r * 0.3, r * 0.16, -0.5, 0, TAU); g.fill();
+  // 眼睛（狂暴时燃红）
+  g.fillStyle = o.rage ? '#c9231a' : '#101018';
+  g.beginPath();
+  g.ellipse(-r * 0.24, -r * 0.16, r * 0.09, r * 0.13, 0, 0, TAU);
+  g.ellipse(r * 0.3, -r * 0.2, r * 0.09, r * 0.13, 0, 0, TAU);
+  g.fill();
+  // 招牌的上扬大笑，嘴角带小勾；攻击时张成大嘴
+  const mo = o.mouthOpen || 0;
+  if (mo > 0.05) {
+    g.fillStyle = '#101018';
+    g.beginPath();
+    g.ellipse(r * 0.02, r * 0.3, r * 0.3 + mo * r * 0.12, r * 0.16 + mo * r * 0.2, 0.05, 0, TAU);
+    g.fill();
+  } else {
+    g.strokeStyle = '#101018';
+    g.lineWidth = Math.max(3, r * 0.13);
+    g.lineCap = 'round';
+    g.beginPath();
+    g.moveTo(-r * 0.46, r * 0.14);
+    g.quadraticCurveTo(-r * 0.1, r * 0.52, r * 0.38, r * 0.3);
+    g.stroke();
+    g.beginPath();
+    g.moveTo(-r * 0.46, r * 0.14);
+    g.lineTo(-r * 0.56, r * 0.02);
+    g.stroke();
+  }
+  g.restore();
 }
 
 const BOSS_FORMS = {
@@ -503,6 +563,11 @@ const BOSS_FORMS = {
     g.strokeStyle = glow;
     g.lineWidth = 4;
     g.beginPath(); g.arc(0, r * 0.34, r * 0.34, 1.15 * Math.PI, 1.85 * Math.PI); g.stroke();
+  },
+
+  // 隐藏终极 Boss dumate：蓝色圆角方块笑脸（见上方 drawDumateBody）
+  dumate(g, e, skin, pal, f) {
+    drawDumateBody(g, e.r * 1.02, e.anim, { flash: e.flash > 0, rage: e.rage, mouthOpen: e.mouthOpen });
   },
 
   // the final boss: dodo itself, blown up to boss scale

@@ -6,6 +6,10 @@ function startRun() {
   G.unlockPopups = [];
   G.unlockPanel = false;
   G.hardFloor = false;
+  G.dumateOffer = null;
+  G.dumateWin = false;
+  G.dumateExec = null;
+  G.dumatePreTime = 0;
   G.floorNum = 1;
   G.paused = false;
   G.stats = { kills: 0, items: 0, startTime: performance.now(), time: 0 };
@@ -238,6 +242,11 @@ function onBossKilled(Gm, boss) {
     return;
   }
   room.bossKilled = true;
+  // 隐藏终极 Boss 的血条被清零——但它不会就这样死掉（见斩杀演出）
+  if (boss && boss.def.dumate) {
+    startDumateExecution(Gm);
+    return;
+  }
   // devil deal: the boss's death sometimes cracks open a black door next to
   // the boss room. Fighting clean pleases the devil — no damage doubles the
   // odds, Isaac style.
@@ -259,16 +268,18 @@ function onBossKilled(Gm, boss) {
     }
   }
   if (Gm.floorNum >= FLOOR_COUNT) {
-    Gm.stats.time = (performance.now() - Gm.stats.startTime) / 1000;
-    Gm.state = 'win';
-    if (!Gm.devTainted) {
-      lbSubmitWin(Gm.stats.time);
-      META.totals.wins++;
-      if (Gm.floorDamage === 0) metaEvent('no_damage_floor');
-      metaEvent('win');
+    // MEGA dodo 倒下：先记下「这个角色通关过」。全部角色都通关后，每次
+    // 击杀 MEGA dodo 都会弹出 dumate 的终极抉择（不止最后那一局——练废了
+    // 还能再来，这是对用户初版触发方式的优化）。
+    if (!Gm.devTainted && Gm.player) {
+      META.charWins[Gm.player.charId] = true;
       metaSave();
     }
-    SFX.win();
+    if (allCharsCleared()) {
+      openDumateOffer(Gm, boss);
+      return;
+    }
+    finishRunWin(Gm, false, null);
   } else if (BRANCH_FLOORS[Gm.floorNum]) {
     // the fork: a safe hatch on the left, a spiked one on the right
     room.trapdoor = { x: W / 2 - 110, y: H / 2 };
@@ -283,6 +294,104 @@ function onBossKilled(Gm, boss) {
     spawnItemPedestal(room, W / 2 + 90, H / 2);
     if (Gm.floor.hard) spawnItemPedestal(room, W / 2 - 90, H / 2);
     resolvePedestals(room, Gm.player);
+  }
+}
+
+// 通关结算：普通通关与 dumate 讨伐共用。timeOverride 用于「见好就收」——
+// 抉择界面上思考的时间不该算进通关成绩。
+function finishRunWin(Gm, dumate, timeOverride) {
+  Gm.stats.time = timeOverride != null ? timeOverride : (performance.now() - Gm.stats.startTime) / 1000;
+  Gm.state = 'win';
+  Gm.dumateWin = !!dumate;
+  if (!Gm.devTainted) {
+    // 讨伐 dumate 的记录拆两段：主用时用击杀 MEGA dodo 的成绩（与
+    // 「见好就收」同一口径，两种通关在榜上可比），讨伐 dumate 的用时
+    // 作为附加段记在括号里
+    if (dumate && Gm.dumatePreTime > 0) {
+      lbSubmitWin(Gm.dumatePreTime, Math.max(0, Gm.stats.time - Gm.dumatePreTime));
+    } else {
+      lbSubmitWin(Gm.stats.time);
+    }
+    META.totals.wins++;
+    if (Gm.floorDamage === 0) metaEvent('no_damage_floor');
+    if (dumate) metaEvent('dumate_win');
+    metaEvent('win');
+    metaSave();
+  }
+  SFX.win();
+}
+
+// ---------------- dumate：隐藏终极 Boss 的抉择与登场 ----------------
+// 触发：全部角色都通关过（META.charWins），任意一局击杀 MEGA dodo 之后。
+// 挑战 → 就地继续打 dumate；清空它的血条会触发斩杀演出（见下），按击杀
+//        那一刻的用时结算，排行榜记「击杀 MEGA dodo 用时+(讨伐用时)」；
+// 收手 → 按击杀 MEGA dodo 那一刻的用时立即结算进排行榜。
+function openDumateOffer(Gm, megaBoss) {
+  Gm.stats.time = (performance.now() - Gm.stats.startTime) / 1000;   // 收手时用的成绩快照
+  Gm.dumateOffer = { sel: 0, megaHp: megaBoss.maxHpRef, openedAt: performance.now() };
+  Gm.state = 'dumateOffer';
+  releaseInput();
+  Gm.shake = Math.max(Gm.shake, 12);
+  SFX.bossDie();
+}
+
+function resolveDumateOffer(accept) {
+  const off = G.dumateOffer;
+  if (!off || G.state !== 'dumateOffer') return;
+  // 开场保护：Boss 战里连打的确认键 / 连点不该替玩家做这个决定
+  if (performance.now() - off.openedAt < 900) return;
+  G.dumateOffer = null;
+  if (!accept) {
+    finishRunWin(G, false, G.stats.time);
+    return;
+  }
+  // 抉择界面上思考的时间不计入通关用时
+  G.stats.startTime += performance.now() - off.openedAt;
+  G.dumatePreTime = G.stats.time;   // 排行榜主用时：击杀 MEGA dodo 的成绩
+  G.state = 'play';
+  const d = makeBoss(DUMATE_DEF, W / 2, H / 2 - 40);
+  d.hp = d.maxHpRef = Math.round(off.megaHp * 20);   // 用户设定：MEGA dodo 的 20 倍
+  G.enemies.push(d);
+  G.room.bossDef = DUMATE_DEF;
+  G.room.bossKilled = false;
+  G.bossFightHurt = false;      // dumate 战单独评无伤
+  // 决战前最后的补给
+  G.room.pickups.push(makePickup('soulheart', W / 2 - 120, H / 2 + 120));
+  G.room.pickups.push(makePickup('soulheart', W / 2 + 120, H / 2 + 120));
+  G.toast = { title: 'dumate', desc: '终极之影现身了……祝你好运', t: 3.2 };
+  G.shake = 22;
+  SFX.bossDie();
+}
+
+// ---------------- dumate：斩杀演出 ----------------
+// 击杀判定成立，账也按通关记，但它没有死：血条清零的瞬间本体消失，
+// 随即瞬移到 dodo 面前给出一记斩杀特写，最后交出一张死亡样式的结算纸。
+// 用时按击杀那一刻快照，演出时长不计入成绩。
+function startDumateExecution(Gm) {
+  Gm.enemies = Gm.enemies.filter(e => !e.dead);
+  Gm.eshots = []; Gm.lasers = []; Gm.beams = [];
+  Gm.toast = null;
+  Gm.dumateExec = { t: 0, slashed: false,
+    killTime: (performance.now() - Gm.stats.startTime) / 1000 };
+  Gm.state = 'dumateExec';
+  releaseInput();
+  Gm.shake = Math.max(Gm.shake, 18);
+  SFX.bossDie();
+}
+
+function updateDumateExec(dt) {
+  const ex = G.dumateExec;
+  if (!ex) return;
+  ex.t += dt;
+  if (!ex.slashed && ex.t >= 1.6) {   // 斩击落下
+    ex.slashed = true;
+    G.shake = Math.max(G.shake, 20);
+    SFX.laser();
+    SFX.death();
+  }
+  if (ex.t >= 3.4) {                  // 演出收尾，按击杀时刻的用时结算
+    G.dumateExec = null;
+    finishRunWin(G, true, ex.killTime);
   }
 }
 

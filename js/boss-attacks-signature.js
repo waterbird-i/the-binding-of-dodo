@@ -712,6 +712,247 @@ Object.assign(BOSS_ATTACKS, {
   },
 });
 
+// ======== dumate：隐藏终极 Boss 的专属招式 ========
+// 全部比 MEGA dodo 的招更快、更密、更需要走位；命名同样全局唯一。
+Object.assign(BOSS_ATTACKS, {
+  // -- dumate: 分叉风暴 — 瞄准扇形的母弹飞行半秒后各自一分为三 --
+  forkStorm(G, e, dt) {
+    const p = G.player;
+    e.t -= dt;
+    if (e.phase === 0) {
+      e.phase = 1; e.t = 0.35; e.mouthOpen = 1;
+      e.data.waves = e.rage ? 3 : 2;
+      e.data.forks = [];
+      return false;
+    }
+    for (const f of e.data.forks) {           // 到时的母弹原地分裂
+      if (f.done) continue;
+      if (f.s.dead) { f.done = true; continue; }
+      f.t -= dt;
+      if (f.t > 0) continue;
+      f.done = true;
+      f.s.dead = true;
+      for (let i = -1; i <= 1; i++) bossShotFrom(G, f.s.x, f.s.y, f.a + i * 0.42, 250, 5.5, 1);
+    }
+    if (e.t > 0) return false;
+    if (e.data.waves > 0) {
+      e.data.waves--;
+      const base = aimAt(e, p);
+      const n = e.rage ? 5 : 4;
+      for (let i = 0; i < n; i++) {
+        const a = base + (i - (n - 1) / 2) * 0.3;
+        const sh = { x: e.x, y: e.y + 6, vx: Math.cos(a) * 200, vy: Math.sin(a) * 200,
+          r: 8, dmg: 1, bounces: 0, dead: false, du: true };
+        G.eshots.push(sh);
+        e.data.forks.push({ s: sh, a, t: 0.5, done: false });
+      }
+      SFX.spit();
+      e.t = 0.55;
+      return false;
+    }
+    return e.data.forks.every(f => f.done);   // 等最后一批母弹裂完才收招
+  },
+
+  // -- dumate: 字节雨 — 弹幕成排从天而降，唯一的安全列每排都在游移 --
+  byteRain(G, e, dt) {
+    if (e.phase === 0) {
+      e.phase = 1;
+      e.data.left = e.rage ? 3.2 : 2.4;
+      e.data.cd = 0;
+      e.data.gap = G.player.x;
+      e.mouthOpen = 1;
+    }
+    e.data.left -= dt; e.data.cd -= dt;
+    if (e.data.cd <= 0) {
+      e.data.cd = e.rage ? 0.34 : 0.42;
+      // 安全列随机游走，逼玩家横向跟跑
+      e.data.gap = clamp(e.data.gap + rand(-1, 1) * 120, FLOOR_X + 70, FLOOR_X + FLOOR_W - 70);
+      for (let x = FLOOR_X + 18; x <= FLOOR_X + FLOOR_W - 18; x += 44) {
+        if (Math.abs(x - e.data.gap) < 55) continue;
+        bossShotFrom(G, x + rand(-8, 8), FLOOR_Y + 8, Math.PI / 2, rand(230, 290), 5.5, 1);
+      }
+      SFX.spit();
+    }
+    return e.data.left <= 0;
+  },
+
+  // -- dumate: 引力奇点 — 黑洞把玩家往里拽，双臂螺旋喷弹，最后崩塌成一圈 --
+  gravityWell(G, e, dt) {
+    const p = G.player;
+    e.t -= dt;
+    if (e.phase === 0) {
+      e.phase = 1;
+      e.t = e.rage ? 3.0 : 2.4;
+      e.data.a = rand(TAU);
+      e.data.cd = 0;
+      e.data.well = {
+        x: clamp(p.x + rand(-60, 60), FLOOR_X + 120, FLOOR_X + FLOOR_W - 120),
+        y: clamp(p.y + rand(-60, 60), FLOOR_Y + 100, FLOOR_Y + FLOOR_H - 100),
+      };
+      e.mark = { x: e.data.well.x, y: e.data.well.y, r: 42 };
+      SFX.laser();
+      return false;
+    }
+    const wl = e.data.well;
+    // 吸力：越近拽得越狠，但永远拽不过全速反抗的玩家
+    const d = Math.max(40, dist(p.x, p.y, wl.x, wl.y));
+    const pull = (e.rage ? 150 : 110) * clamp(260 / d, 0.4, 1.6);
+    p.x += (wl.x - p.x) / d * pull * dt;
+    p.y += (wl.y - p.y) / d * pull * dt;
+    e.data.cd -= dt;
+    if (e.data.cd <= 0) {
+      e.data.cd = 0.11;
+      e.data.a += 0.55;
+      for (const sgn of [0, Math.PI]) bossShotFrom(G, wl.x, wl.y, e.data.a + sgn, 150, 5, 1);
+      if (chance(0.4)) SFX.spit();
+    }
+    if (e.t > 0) return false;
+    const n = e.rage ? 16 : 12;                // 奇点崩塌
+    const off = rand(TAU);
+    for (let i = 0; i < n; i++) bossShotFrom(G, wl.x, wl.y, off + i / n * TAU, 240, 6, 1);
+    if (dist(p.x, p.y, wl.x, wl.y) < 60 + p.r) hurtPlayer(G, 2, wl.x, wl.y);
+    G.shake = Math.max(G.shake, 10);
+    SFX.boom();
+    e.mark = null;
+    e.data.well = null;
+    return true;
+  },
+
+  // -- dumate: 防火墙矩阵 — 纵横激光交织成网，整张网缓缓平移碾过房间 --
+  firewallGrid(G, e, dt) {
+    e.t -= dt;
+    if (e.phase === 0) {
+      e.phase = 1;
+      const life = e.rage ? 3.2 : 2.6;
+      e.data.walls = [];
+      const nv = e.rage ? 4 : 3;
+      for (let i = 0; i < nv; i++) {
+        addEnemyLaser(G, { x: FLOOR_X + FLOOR_W * (i + 0.5) / nv, y: FLOOR_Y + 4, angle: Math.PI / 2,
+          len: FLOOR_H - 8, w: 12, warm: 0.9, life, spin: 0, dmg: 1, du: true });
+        e.data.walls.push({ l: G.lasers[G.lasers.length - 1], vx: (i % 2 ? -1 : 1) * (e.rage ? 60 : 44), vy: 0 });
+      }
+      for (let i = 0; i < 2; i++) {
+        addEnemyLaser(G, { x: FLOOR_X + 4, y: FLOOR_Y + FLOOR_H * (i + 0.5) / 2, angle: 0,
+          len: FLOOR_W - 8, w: 12, warm: 0.9, life, spin: 0, dmg: 1, du: true });
+        e.data.walls.push({ l: G.lasers[G.lasers.length - 1], vx: 0, vy: (i % 2 ? -1 : 1) * (e.rage ? 46 : 34) });
+      }
+      e.t = 0.9 + life + 0.3;
+      e.mouthOpen = 1;
+      SFX.laser();
+      return false;
+    }
+    for (const wall of e.data.walls) {         // 网格整体平移，碰壁反弹
+      const l = wall.l;
+      if (l.dead) continue;
+      l.x += wall.vx * dt; l.y += wall.vy * dt;
+      if (l.x < FLOOR_X + 30 || l.x > FLOOR_X + FLOOR_W - 30) wall.vx *= -1;
+      if (l.y < FLOOR_Y + 30 || l.y > FLOOR_Y + FLOOR_H - 30) wall.vy *= -1;
+    }
+    return e.t <= 0;
+  },
+
+  // -- dumate: 镜像分身 — 本体隐形，镜像在玩家身侧成型并轮番齐射 --
+  mirrorPhantoms(G, e, dt) {
+    const p = G.player;
+    e.t -= dt;
+    if (e.phase === 0) {
+      e.phase = 1; e.t = 0.8;
+      e.fade = 0.15;
+      const n = e.rage ? 4 : 3;
+      e.marks = [];
+      for (let i = 0; i < n; i++) {
+        const a = rand(TAU), radius = rand(130, 230);
+        e.marks.push({
+          x: clamp(p.x + Math.cos(a) * radius, FLOOR_X + 40, FLOOR_X + FLOOR_W - 40),
+          y: clamp(p.y + Math.sin(a) * radius, FLOOR_Y + 40, FLOOR_Y + FLOOR_H - 40),
+          r: 34,
+        });
+      }
+      e.data.volleys = e.rage ? 3 : 2;
+      SFX.spit();
+      return false;
+    }
+    if (e.phase === 1) {
+      if (e.t > 0) return false;
+      for (const m of e.marks) {               // 每个镜像朝玩家甩一把扇形弹
+        const base = Math.atan2(p.y - m.y, p.x - m.x);
+        for (let i = -2; i <= 2; i++) bossShotFrom(G, m.x, m.y, base + i * 0.16, 270, 5.5, 1);
+      }
+      SFX.spit();
+      if (--e.data.volleys > 0) { e.t = 0.55; return false; }
+      e.phase = 2; e.t = 0.3;
+      return false;
+    }
+    e.fade = 1;
+    if (e.t > 0) return false;
+    const last = e.marks[e.marks.length - 1];  // 本体从最后一个镜像处现身
+    e.x = clamp(last.x, FLOOR_X + e.r, FLOOR_X + FLOOR_W - e.r);
+    e.y = clamp(last.y, FLOOR_Y + e.r, FLOOR_Y + FLOOR_H - e.r);
+    e.marks = null;
+    const n = e.rage ? 14 : 10;
+    const off = rand(TAU);
+    for (let i = 0; i < n; i++) bossShot(G, e, off + i / n * TAU, 230, 6, 1);
+    G.shake = Math.max(G.shake, 8);
+    SFX.thud();
+    return true;
+  },
+
+  // -- dumate: 格式化 — 天启的上位版：轰炸带一列列从一侧扫向另一侧，
+  // 安全口跟着轰炸带漂移，站着不动必死；狂暴时立刻反向再扫一遍 --
+  overwrite(G, e, dt) {
+    const p = G.player;
+    e.t -= dt;
+    if (e.phase === 0) {
+      if (e.data.sweeps == null) { e.data.sweeps = e.rage ? 2 : 1; e.data.fromLeft = p.x > W / 2; }
+      e.phase = 1;
+      e.t = 0.9;
+      e.data.col = 0;
+      e.data.cols = 6;
+      e.data.gapY = clamp(p.y, FLOOR_Y + 80, FLOOR_Y + FLOOR_H - 80);
+      e.mouthOpen = 1;
+      G.shake = Math.max(G.shake, 5);
+      SFX.laser();
+      overwriteMarks(e);                       // 第一列预警
+      return false;
+    }
+    e.mouthOpen = 1;
+    if (e.t > 0) return false;
+    if (e.phase === 2) return true;
+    let hit = false;                           // 引爆当前列
+    for (const m of e.marks || []) {
+      const off = rand(TAU);
+      for (let i = 0; i < 3; i++) bossShotFrom(G, m.x, m.y, off + i / 3 * TAU, 170, 5.5, 1);
+      if (!hit && dist(p.x, p.y, m.x, m.y) < m.r + p.r) { hit = true; hurtPlayer(G, 2, m.x, m.y); }
+    }
+    G.shake = Math.max(G.shake, 12);
+    SFX.boom();
+    e.data.col++;
+    e.data.gapY = clamp(e.data.gapY + rand(-1, 1) * 90, FLOOR_Y + 80, FLOOR_Y + FLOOR_H - 80);
+    if (e.data.col >= e.data.cols) {
+      e.marks = null;
+      if (--e.data.sweeps > 0) { e.data.fromLeft = !e.data.fromLeft; e.phase = 0; e.t = 0.35; return false; }
+      e.phase = 2; e.t = 0.7;
+      return false;
+    }
+    overwriteMarks(e);
+    e.t = e.rage ? 0.5 : 0.62;
+    return false;
+  },
+});
+
+// overwrite 的一列预警：整列铺满标记，只在 gapY 附近留一个口子
+function overwriteMarks(e) {
+  const colW = FLOOR_W / e.data.cols;
+  const x0 = e.data.fromLeft
+    ? FLOOR_X + colW * (e.data.col + 0.5)
+    : FLOOR_X + FLOOR_W - colW * (e.data.col + 0.5);
+  e.marks = [];
+  for (let y = FLOOR_Y + 40; y <= FLOOR_Y + FLOOR_H - 30; y += 78) {
+    if (Math.abs(y - e.data.gapY) < 68) continue;
+    e.marks.push({ x: x0 + rand(-10, 10), y: y + rand(-8, 8), r: 52 });
+  }
+}
+
 // pool of minions a boss can summon, matched to how deep the floor is
 function minionPool(depth) {
   if (depth <= 2) return ['fly', 'gaper'];

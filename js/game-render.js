@@ -213,6 +213,8 @@ function render() {
   if (G.state === 'play' && G.mapOverlay && G.floorCurse !== 'lost') drawFullMap(ctx, G.floor, G.room);
   if (G.state === 'dead') renderDeath();
   if (G.state === 'win') renderWin();
+  if (G.state === 'dumateOffer') renderDumateOffer();
+  if (G.state === 'dumateExec') renderDumateExec();
   // the map overlay stands in for the pause panel: on touch it opens by pausing
   if (G.paused && !G.mapOverlay) (G.unlockPanel ? renderUnlockPanel() : renderPause());
   if (G.unlockPopups.length) renderUnlockPopups();
