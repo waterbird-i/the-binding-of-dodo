@@ -4,13 +4,19 @@
 // stats. All hooks live here; the engine calls in at the few relevant spots.
 
 // ---------------- 生气 dodo: the rage meter ----------------
-// Kills and pain feed the meter, idling drains it. High rage = faster,
-// harder tears and quicker feet; a full meter is 暴走: bloody tears plus
-// contact damage until the meter sags again.
+// Landed hits, kills and pain feed the meter; it only sags once the fight
+// stops (RAGE_COMBAT_T after the last hit dealt or taken). High rage =
+// faster, harder tears and quicker feet; a full meter is 暴走: bloody
+// tears, contact damage and a big burst of attack / speed / fire rate.
+const RAGE_COMBAT_T = 2.0;      // seconds of grace before the meter drains
+const RAGE_HIT = 0.02;          // rage per landed hit (kills 0.09, pain 0.4)
+const RAGE_BERSERK_DMG = 2.5;   // 暴走 attack multiplier
+const RAGE_BERSERK_FIRE = 0.5;  // 暴走 fireDelay multiplier
+const RAGE_BERSERK_SPEED = 160; // 暴走 move speed bonus
 function rageOf(p) { return p.charId === 'rage' ? (p.rageMeter || 0) : 0; }
-function rageDmgMul(p) { return 1 + rageOf(p) * 0.7; }
-function rageFireMul(p) { return 1 - rageOf(p) * 0.32; }
-function rageSpeedAdd(p) { return rageOf(p) * 50; }
+function rageDmgMul(p) { return rageBerserk(p) ? RAGE_BERSERK_DMG : 1 + rageOf(p) * 0.7; }
+function rageFireMul(p) { return rageBerserk(p) ? RAGE_BERSERK_FIRE : 1 - rageOf(p) * 0.32; }
+function rageSpeedAdd(p) { return rageBerserk(p) ? RAGE_BERSERK_SPEED : rageOf(p) * 50; }
 function rageBerserk(p) { return rageOf(p) >= 0.99; }
 
 function addRage(p, n) {
@@ -23,9 +29,26 @@ function addRage(p, n) {
     SFX.bossDie();
   }
 }
+// landing a hit or taking one keeps the meter from sagging — call on both
+function rageMarkCombat(p) {
+  if (p.charId === 'rage') p.rageCombatT = RAGE_COMBAT_T;
+}
 function updateRage(p, dt) {
   if (p.charId !== 'rage' || !p.rageMeter) return;
+  if (p.rageCombatT > 0) { p.rageCombatT -= dt; return; }
   p.rageMeter = Math.max(0, p.rageMeter - dt * 0.055);
+}
+
+// 处决: the execute payoff — shockwave ring, blood geyser and a popup label
+function spawnExecFX(G, x, y) {
+  G.particles.push({ kind: 'ring', x, y: y + 14, r: 8, grow: 2.4, vx: 0, vy: 0, life: 0.4, maxLife: 0.4, color: 'rgba(235,64,40,0.95)', lineW: 4 });
+  for (let i = 0; i < 18; i++) {
+    const a = rand(TAU), s = rand(40, 210);
+    G.particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 130, life: rand(0.3, 0.7), maxLife: 0.7, r: rand(2, 5), color: chance(0.65) ? PAL.blood : '#ff5a3c', grav: 650 });
+  }
+  G.particles.push({ kind: 'text', text: '处决!', x, y: y - 26, vx: 0, vy: -46, life: 0.85, maxLife: 0.85, size: 15, color: '#ff6a4d' });
+  G.shake = Math.max(G.shake, 5);
+  SFX.execute();
 }
 
 // ---------------- 暗黑 dodo: the devil's favorite ----------------
@@ -46,6 +69,26 @@ function devilPriceFor(p, price) {
 function devilSoulCost(p) { return p.charId === 'dark' ? 4 : 6; }
 // 迷失 dodo has nothing left to lose — the devil deals to him for free
 function devilFreeDeal(p) { return p.charId === 'lost'; }
+
+// ---------------- 迷失 dodo: 生命上限 → 攻击力 ----------------
+// 他的身份就是把「血量上限」这个属性整个折成攻击：标准 dodo 3 颗心（6 半心）
+// 扣到半颗（两颗半星），按比例换成巨额初始攻击（见 js/meta.js）；之后拾到的
+// 加血道具也一样——上限增量不进血条，直接折成攻击（牺牲上限的恶魔道具不受
+// 影响，它们本来就用伤害换心）。每半颗心 ≈ 3 攻击，约等于恶魔交易的行价。
+const LOST_HP_TO_DMG = 3;
+function lostHpToDmg(halfHearts) { return halfHearts * LOST_HP_TO_DMG; }
+// 迷失 dodo 应用道具的统一入口：返回本次转化出的攻击力（非迷失角色恒为 0）。
+// 调用点随后照常 clampPlayerStats——把 maxHp 压回 1、hp 压回半颗心。
+function applyItemToPlayer(p, def) {
+  if (p.charId !== 'lost') { def.apply(p); return 0; }
+  const before = p.maxHp;
+  def.apply(p);
+  const gained = p.maxHp - before;
+  if (gained <= 0) return 0;
+  const bonus = lostHpToDmg(gained);
+  p.damage += bonus;
+  return bonus;
+}
 
 // 暗黑 dodo reaps souls: slain enemies sometimes drop a soul flame.
 // Each flame charges the spacebar item; every third one congeals into

@@ -259,7 +259,7 @@ function devStepItem(step) {
   devIdx = (devIdx + step + ITEM_DEFS.length) % ITEM_DEFS.length;
   const def = ITEM_DEFS[devIdx];
   Object.assign(p, makePlayer(p.charId), { x: p.x, y: p.y });   // wipe previous item, keep position
-  def.apply(p);
+  applyItemToPlayer(p, def);
   clampPlayerStats(p);
   if (p.flight) spawnFeathers(G, p.x, p.y);
   p.itemsTaken.push(def.id);

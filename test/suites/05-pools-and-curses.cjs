@@ -198,16 +198,15 @@ module.exports = async ({ page, context, consoleErrors }) => {
     updatePlay(1 / 60);
     out.bled = p.hp === 22 && sac.sacrifices === 1;
     out.coin = sac.pickups.some(pk => pk.kind === 'coin');
-    // grind the whole payout table (7 offerings total)
-    for (let i = 0; i < 6; i++) {
+    // the third offering must be the final high-grade item
+    for (let i = 0; i < 2; i++) {
       p.invuln = 0; sac.altarCd = 0; p.hp = 24;
       p.x = W / 2; p.y = H / 2;
       updatePlay(1 / 60);
     }
-    out.souls = sac.pickups.filter(pk => pk.kind === 'soulheart').length >= 2;
-    out.items = sac.pedestals.filter(pd => pd.def).length >= 2;
-    out.devilItem = sac.pedestals.some(pd => pd.def && pd.def.pool === 'devil');
-    out.done = sac.altarDone === true && sac.sacrifices === 7;
+    out.noHealthRewards = !sac.pickups.some(pk => ['heart', 'halfheart', 'soulheart'].includes(pk.kind));
+    out.items = sac.pedestals.some(pd => pd.def && (pd.def.pool || 'treasure') === 'treasure');
+    out.done = sac.altarDone === true && sac.sacrifices === 3;
     // a retired altar stops biting
     p.invuln = 0; sac.altarCd = 0;
     const hpBefore = p.hp;
@@ -218,8 +217,8 @@ module.exports = async ({ page, context, consoleErrors }) => {
   });
   ok('献祭房无敌人门常开', sacInfo.skip || sacInfo.peaceful, JSON.stringify(sacInfo));
   ok('踩尖刺扣一颗心并计数', sacInfo.skip || sacInfo.bled);
-  ok('献祭掉落金币/魂心/道具递进', sacInfo.skip || (sacInfo.coin && sacInfo.souls && sacInfo.items));
-  ok('第 7 次献祭掉恶魔池道具后祭坛沉寂', sacInfo.skip || (sacInfo.devilItem && sacInfo.done && sacInfo.retired));
+  ok('献祭可掉金币且不掉生命值相关道具', sacInfo.skip || (sacInfo.coin && sacInfo.noHealthRewards));
+  ok('第 3 次献祭必掉高级道具后祭坛沉寂', sacInfo.skip || (sacInfo.items && sacInfo.done && sacInfo.retired));
 
   section('转变系统');
   const tfInfo = await page.evaluate(() => {

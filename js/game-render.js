@@ -139,6 +139,33 @@ function render() {
   for (const l of G.lasers) drawLaser(ctx, l);
   for (const o of G.orbits) drawOrbital(ctx, o);
   for (const pa of G.particles) {
+    // expanding ground shockwave (处决 ring)
+    if (pa.kind === 'ring') {
+      const k = 1 - pa.life / pa.maxLife;
+      ctx.save();
+      ctx.globalAlpha = clamp(pa.life / pa.maxLife, 0, 1);
+      ctx.strokeStyle = pa.color;
+      ctx.lineWidth = pa.lineW || 3;
+      ctx.beginPath();
+      ctx.ellipse(pa.x, pa.y, pa.r * (1 + k * (pa.grow || 2)), pa.r * (1 + k * (pa.grow || 2)) * 0.42, 0, 0, TAU);
+      ctx.stroke();
+      ctx.restore();
+      continue;
+    }
+    // floating popup label (处决!)
+    if (pa.kind === 'text') {
+      ctx.save();
+      ctx.globalAlpha = clamp(pa.life / pa.maxLife, 0, 1);
+      ctx.font = 'bold ' + (pa.size || 14) + 'px Trebuchet MS';
+      ctx.textAlign = 'center';
+      ctx.strokeStyle = 'rgba(30,12,6,0.9)';
+      ctx.lineWidth = 3;
+      ctx.strokeText(pa.text, pa.x, pa.y);
+      ctx.fillStyle = pa.color;
+      ctx.fillText(pa.text, pa.x, pa.y);
+      ctx.restore();
+      continue;
+    }
     ctx.globalAlpha = clamp(pa.life / pa.maxLife, 0, 1);
     ctx.fillStyle = pa.color;
     ctx.beginPath(); ctx.arc(pa.x, pa.y, pa.r, 0, TAU); ctx.fill();
@@ -174,7 +201,7 @@ function render() {
   if (room.kind === 'sacrifice' && dist(W / 2, H / 2, p.x, p.y) < 130) {
     tips.push(room.altarDone
       ? { name: '献祭尖刺', desc: '祭坛已经餍足 不再回应', x: W / 2, y: H / 2 }
-      : { name: '献祭尖刺', desc: '以血换取馈赠　已献祭 ' + (room.sacrifices || 0) + '/7',
+      : { name: '献祭尖刺', desc: '以血换取馈赠　已献祭 ' + (room.sacrifices || 0) + '/3',
           x: W / 2, y: H / 2 });
   }
   if (room.shopItems) {
@@ -470,4 +497,3 @@ function renderFloorIntro() {
   }
   ctx.restore();
 }
-

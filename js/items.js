@@ -307,7 +307,7 @@ function checkTransformations(G, p) {
     if (n < 3) continue;
     p.transforms[tf.id] = true;
     const hadFlight = p.flight;
-    tf.apply(p);
+    applyItemToPlayer(p, tf);   // 迷失 dodo：转变给的上限同样折成攻击
     clampPlayerStats(p);
     G.toast = { title: '转变 · ' + tf.name, desc: tf.desc, t: 3.4 };
     if (!hadFlight && p.flight) spawnFeathers(G, p.x, p.y);

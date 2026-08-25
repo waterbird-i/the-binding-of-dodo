@@ -353,6 +353,7 @@ module.exports = async ({ page, context, consoleErrors }) => {
     updatePlay(1 / 60);
     out.entered = G.room === secret;
     out.loot = secret.pickups.length >= 3;
+    out.highGrade = secret.pedestals.some(pd => pd.def && (pd.def.pool || 'treasure') === 'treasure');
     return out;
   });
   ok('秘密房开局不在小地图上', secretPlay.secretHiddenOnMap);
@@ -361,6 +362,7 @@ module.exports = async ({ page, context, consoleErrors }) => {
   ok('炸开后秘密房出现在小地图', secretPlay.secretNowSeen);
   ok('可以走进秘密房', secretPlay.entered);
   ok('秘密房藏有战利品', secretPlay.loot);
+  ok('秘密房必有高级道具', secretPlay.highGrade);
 
   const cursePlay = await page.evaluate(async () => {
     const out = {};

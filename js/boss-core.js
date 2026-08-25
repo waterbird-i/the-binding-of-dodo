@@ -8,12 +8,10 @@
 // (shorter gaps, denser bullets), exactly like Monstro's second phase.
 // HP: floor 1 stays a gentle tutorial fight; floors 2+ climb an exponential
 // curve (~×1.32 per floor from a much higher base). On top of that, makeBoss
-// clamps hp into a fight-length corridor of the player's estimated dps: at
-// least ~30s so a stacked build can never melt a boss instantly, at most
-// ~(40 + 4×depth)s so an under-geared build isn't ground down by a ninety
-// second war of attrition on floor 2. Touch damage steps up by chapter, so
-// the late game actually bites. The final boss ignores the cap and doubles
-// the floor — that fight is meant to be a marathon.
+// caps hp at ~60s of the player's estimated standing-still dps: a fight can
+// never outlast a minute of sustained fire, and there is no minimum — a
+// stacked build is free to melt a boss in seconds (10s 内速杀也允许).
+// Touch damage steps up by chapter, so the late game actually bites.
 // Signature rule: every attack in BOSS_ATTACKS belongs to exactly ONE boss --
 // no two bosses share a move, so each fight teaches a fresh dodge.
 const BOSS_DEFS = [
@@ -132,23 +130,18 @@ function estimatePlayerDPS(p) {
   return dps;
 }
 
-const BOSS_MIN_FIGHT_SECONDS = 30;
-// upper bound loosens with depth: early bosses stay brisk for under-geared
-// builds while deep ones still demand a minute-plus of sustained fire
-function bossMaxFightSeconds(depth) { return 40 + 4 * depth; }
-// the true final boss skips the cap and doubles the floor: a marathon fight
-const FINAL_MIN_FIGHT_SECONDS = 60;
+// 用户设定：Boss 血量不再按玩家 DPS 抬下限（旧 30s 站桩让 boss 都太肉），
+// 改为按玩家站桩 60s 输出封顶、不设下限——数值堆高的 build 允许 10s 内速杀，
+// 数值低的也不会被一场 Boss 战磨掉一分钟以上。最终 Boss 同规则。
+const BOSS_CAP_FIGHT_SECONDS = 60;
 
 function makeBoss(def, x, y) {
-  // floor 1 keeps its tutorial-sized hp; every later boss lives inside a
-  // fight-length corridor of the player's estimated dps (see header note)
+  // floor 1 keeps its tutorial-sized hp; every later boss (final included)
+  // is only ever capped at ~60s of the player's standing-still output —
+  // never inflated to enforce a minimum fight length
   let hp = def.hp;
-  if (def.final) {
-    hp = Math.max(hp, Math.round(estimatePlayerDPS(G.player) * FINAL_MIN_FIGHT_SECONDS));
-  } else if (G.floorNum > 1) {
-    const dps = estimatePlayerDPS(G.player);
-    hp = Math.max(hp, Math.round(dps * BOSS_MIN_FIGHT_SECONDS));
-    hp = Math.min(hp, Math.max(1, Math.round(dps * bossMaxFightSeconds(G.floorNum))));
+  if (G.floorNum > 1) {
+    hp = Math.min(hp, Math.max(1, Math.round(estimatePlayerDPS(G.player) * BOSS_CAP_FIGHT_SECONDS)));
   }
   // the risky route grows a meaner boss
   if (typeof G !== 'undefined' && G.floor && G.floor.hard) hp = Math.round(hp * 1.2);

@@ -82,6 +82,13 @@ const SFX = (() => {
       noise({ t: 0.22, vol: 0.2, f: 500, q: 0.6 });
       tone({ type: 'sawtooth', f0: 280, f1: 55, t: 0.24, vol: 0.13 });
     },
+    execute() {
+      if (throttled('execute', 120)) return;
+      // 处决: a fast upward slice over a wet crunch
+      noise({ t: 0.1, vol: 0.2, f: 2200, f1: 350, q: 0.9 });
+      tone({ type: 'square', f0: 210, f1: 42, t: 0.2, vol: 0.2 });
+      tone({ type: 'sawtooth', f0: 920, f1: 130, t: 0.14, vol: 0.09, delay: 0.03 });
+    },
     hurt() {
       tone({ type: 'sawtooth', f0: 180, f1: 65, t: 0.3, vol: 0.26 });
       noise({ t: 0.2, vol: 0.16, f: 300, q: 0.5 });

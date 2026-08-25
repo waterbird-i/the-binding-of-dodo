@@ -262,18 +262,15 @@ function generateFloor(depth, hard) {
       byKey.set(key(best.x, best.y), secret);
       rooms.push(secret);
       for (const nb of best.list) linkHidden(nb, secret);
-      // stash: coins plus a bomb/battery, sometimes a pedestal
+      // stash: coins plus utility pickups and one guaranteed high-grade item
       for (const [dx, k2] of [[-60, 'coin'], [0, 'coin'], [60, 'coin']]) {
         secret.pickups.push({ kind: k2, x: W / 2 + dx, y: H / 2 + 50, anim: rand(10), taken: false });
       }
       if (chance(0.6)) secret.pickups.push({ kind: 'bomb', x: W / 2 - 90, y: H / 2 - 20, anim: rand(10), taken: false });
       if (chance(0.5)) secret.pickups.push({ kind: 'battery', x: W / 2 + 90, y: H / 2 - 20, anim: rand(10), taken: false });
       if (chance(0.3)) secret.pickups.push({ kind: 'soulheart', x: W / 2, y: H / 2 + 110, anim: rand(10), taken: false });
-      if (chance(0.35)) {
-        const active = chance(0.5);
-        secret.pedestals.push({ x: W / 2, y: H / 2 - 60, def: null, anim: rand(10), taken: false,
-          pendingRandom: !active, pendingActive: active });
-      }
+      secret.pedestals.push({ x: W / 2, y: H / 2 - 60, def: null, anim: rand(10), taken: false,
+        pendingRandom: true, pool: 'treasure' });
     }
   }
 

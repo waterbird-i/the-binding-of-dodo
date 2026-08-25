@@ -120,9 +120,20 @@ module.exports = async ({ page, context, consoleErrors }) => {
     G.enemies.push(e);
     damageEnemy(G, e, e.hp * 0.9, 1, 0);   // leaves 10% < 15% threshold
     out.execute = e.dead === true;
+    out.execFx = G.particles.some(pa => pa.kind === 'ring' || pa.kind === 'text');   // 处决特效
     out.rageFeeds = p.rageMeter > 0.5;      // the kill fed the meter back
+    // every landed hit feeds the meter too — and a full meter unlocks the 暴走 boost
+    const meterBefore = p.rageMeter;
+    const e2 = makeEnemy('gaper', p.x + 100, p.y, 1);
+    e2.spawnT = 0;
+    G.enemies.push(e2);
+    damageEnemy(G, e2, 1, 1, 0);
+    out.rageHitFeeds = p.rageMeter > meterBefore;
+    addRage(p, 1);
+    out.rageBerserk = rageBerserk(p) && rageDmgMul(p) === 2.5 && rageFireMul(p) === 0.5 && rageSpeedAdd(p) === 160;
+    p.rageCombatT = 0;                      // rage only sags once the fight stops
     updateRage(p, 1);
-    out.rageDecays = p.rageMeter < 0.59;
+    out.rageDecays = p.rageMeter < 1;       // 满怒停手后 1s 开始消退
     // --- 暗黑 dodo: soul flames congeal, devil deals run cheaper, no holy rolls ---
     G.state = 'menu'; G.charIdx = idx('dark'); confirmScreen();
     const d = G.player;
@@ -133,14 +144,27 @@ module.exports = async ({ page, context, consoleErrors }) => {
     let holyLeak = false;
     for (let i = 0; i < 400; i++) if (DARK_HOLY_BAN[randomItemDef([]).id]) holyLeak = true;
     out.holyBan = !holyLeak;
-    // --- 迷失 dodo: hp-ups slide off, devil deals are free, shield then death ---
+    // --- 迷失 dodo: hp converts to attack, devil deals are free, shield then death ---
     G.state = 'menu'; G.charIdx = idx('lost'); confirmScreen();
     const l = G.player;
     out.lostStart = l.maxHp === 1 && l.hp === 1 && l.shieldUp === true;
+    // 初始两颗半星（5 半心）的上限折成攻击：3.5 + 5×3 = 18.5
+    out.lostDmg = Math.abs(l.damage - (3.5 + lostHpToDmg(5))) < 1e-9;
     out.lostFree = devilDealAfford(l, 2) && devilDealLabel(l, 2).indexOf('免费') >= 0;
     l.maxHp += 4; l.soulHp = 6;
     clampPlayerStats(l);
     out.lostNoGain = l.maxHp === 1 && l.soulHp === 0;
+    // 加血道具统一走 applyItemToPlayer：上限增量折成攻击，血条纹丝不动
+    const dmgBefore = l.damage;
+    const hpBonus = applyItemToPlayer(l, ITEM_BY_ID.dodo_heart);
+    clampPlayerStats(l);
+    out.lostConvert = hpBonus === 2 * LOST_HP_TO_DMG && l.damage === dmgBefore + 2 * LOST_HP_TO_DMG &&
+      l.maxHp === 1 && l.hp === 1;
+    // 牺牲上限的恶魔道具不转化——它给的攻击就是交易本身
+    const dmgBefore2 = l.damage;
+    applyItemToPlayer(l, ITEM_BY_ID.devil_horn);
+    clampPlayerStats(l);
+    out.lostNoBack = l.damage === dmgBefore2 + 4.2 && l.maxHp === 1;
     l.invuln = 0; hurtPlayer(G, 1, l.x + 10, l.y);
     out.lostShield = l.hp === 1 && l.shieldUp === false;
     l.invuln = 0; hurtPlayer(G, 1, l.x + 10, l.y);
@@ -162,12 +186,16 @@ module.exports = async ({ page, context, consoleErrors }) => {
     return out;
   });
   ok('生气 dodo：怒气增伤提速', powers.rageStart && powers.rageScales, JSON.stringify(powers));
-  ok('生气 dodo：处决残血敌人并回怒', powers.execute && powers.rageFeeds);
+  ok('生气 dodo：处决残血敌人并回怒', powers.execute && powers.rageFeeds && powers.execFx);
+  ok('生气 dodo：打中敌人也涨怒 满怒大幅增强', powers.rageHitFeeds && powers.rageBerserk);
   ok('生气 dodo：怒气随时间消退', powers.rageDecays);
   ok('暗黑 dodo：3 团魂火凝成半颗魂心', powers.soulCongeal);
   ok('暗黑 dodo：恶魔交易更便宜', powers.darkDevil);
   ok('暗黑 dodo：圣物不进道具池', powers.holyBan);
   ok('迷失 dodo：生命上限与魂心无效', powers.lostStart && powers.lostNoGain);
+  ok('迷失 dodo：初始两颗半星折成巨额攻击', powers.lostDmg, 'damage=' + powers.lostDmg);
+  ok('迷失 dodo：加血道具的上限折成攻击', powers.lostConvert);
+  ok('迷失 dodo：恶魔交易不受转化影响', powers.lostNoBack);
   ok('迷失 dodo：恶魔交易免费', powers.lostFree);
   ok('迷失 dodo：圣盾挡一下 再挨一下即死', powers.lostShield && powers.lostDies);
   ok('赌徒 dodo：每层重摇运势 商店半价', powers.gamStart && powers.gamMod1 && powers.gamMod2 && powers.gamShop);

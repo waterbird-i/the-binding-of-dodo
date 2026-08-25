@@ -36,11 +36,11 @@ metaLoad();
 // the starting statline, so all 89 items and every animation keep working.
 const CHAR_DEFS = [
   { id: 'dodo', name: 'dodo', desc: '均衡的开局', unlock: null },
-  { id: 'rage', name: '生气 dodo', desc: '怒气驱动 越战越狂 处决残血敌人', unlock: 'char_rage',
+  { id: 'rage', name: '生气 dodo', desc: '怒气驱动 命中涨怒 满怒暴走 处决残血', unlock: 'char_rage',
     apply(p) {
       p.maxHp = 4; p.hp = 4;
       p.damage += 0.8;
-      p.rageMeter = 0;       // 0..1 — kills and pain feed it (js/char-powers.js)
+      p.rageMeter = 0;       // 0..1 — hits, kills and pain feed it (js/char-powers.js)
       p.appearance.headColor = '#f2b4a2';
       p.appearance.eyeColor = '#a32014';
       p.appearance.brow = 'angry';
@@ -55,13 +55,14 @@ const CHAR_DEFS = [
       p.appearance.eyeColor = '#cbb9f2';
       p.appearance.aura = 'rgba(96,64,150,0.28)';
     } },
-  { id: 'lost', name: '迷失 dodo', desc: '一触即死 飞行幽泪 圣盾护身 恶魔白送', unlock: 'char_lost',
+  { id: 'lost', name: '迷失 dodo', desc: '一触即死 上限折攻击 飞行幽泪 圣盾护身 恶魔白送', unlock: 'char_lost',
     apply(p) {
       p.maxHp = 1; p.hp = 1;   // half a heart: any hit is lethal (clamp exempts him)
+      // 初始 6 半心（3 心）扣到 1 半心 = 两颗半星，全部折成攻击
+      p.damage += lostHpToDmg(5);
       p.flight = true;
       p.spectral = true;
       p.shieldMax = 1; p.shieldUp = true;
-      p.damage += 1.0;
       p.moveSpeed += 20;
       p.appearance.headColor = '#eef1f6';
       p.appearance.eyeColor = '#6b7684';

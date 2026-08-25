@@ -190,36 +190,17 @@ function onRoomCleared(room) {
   else if (roll < 0.52 + heartChance) room.pickups.push(makePickup('soulheart', cx, cy - 50));
 }
 
-// escalating altar payouts: coins first, then soul hearts, then real items —
-// the seventh offering rolls the devil pool and retires the altar
+// altar payouts: the first two offerings may pay coins, the third always pays
+// a high-grade treasure item and retires the altar.
 function sacrificeReward(room, n) {
   const cx = W / 2, cy = H / 2;
-  if (n === 1) {
+  if (n < 3) {
     room.pickups.push(makePickup('coin', cx - 80, cy + 70));
-    G.toast = { title: '献祭 ×1', desc: '祭坛收下了你的血…', t: 1.6 };
-  } else if (n === 2) {
-    room.pickups.push(makePickup('coin', cx + 80, cy + 70));
-    room.pickups.push(makePickup('coin', cx + 100, cy + 50));
-    G.toast = { title: '献祭 ×2', desc: '血滴在渗进石缝…', t: 1.6 };
-  } else if (n === 3) {
-    room.pickups.push(makePickup('soulheart', cx, cy - 90));
-    G.toast = { title: '献祭 ×3', desc: '一颗魂心浮出祭坛!', t: 2.0 };
-  } else if (n === 4) {
-    room.pickups.push(makePickup(chance(0.5) ? 'bomb' : 'battery', cx - 90, cy - 70));
-    G.toast = { title: '献祭 ×4', desc: '祭坛吐出了一点存货…', t: 1.6 };
-  } else if (n === 5) {
-    spawnItemPedestal(room, cx - 110, cy - 90, 'treasure');
-    resolvePedestals(room, G.player);
-    G.toast = { title: '献祭 ×5', desc: '祭坛显灵了 一件宝物浮现!', t: 2.4 };
-    SFX.chest();
-  } else if (n === 6) {
-    room.pickups.push(makePickup('soulheart', cx + 90, cy - 70));
-    G.toast = { title: '献祭 ×6', desc: '又一颗魂心…它还想要更多', t: 2.0 };
   } else {
-    spawnItemPedestal(room, cx + 110, cy - 90, 'devil');
+    spawnItemPedestal(room, cx, cy - 90, 'treasure');
     resolvePedestals(room, G.player);
     room.altarDone = true;
-    G.toast = { title: '献祭 ×7', desc: '恶魔的馈赠! 祭坛沉寂了', t: 2.8 };
+    G.toast = { title: '献祭 ×3', desc: '高级道具浮现了! 祭坛沉寂了', t: 2.8 };
     SFX.chest();
   }
 }
@@ -415,4 +396,3 @@ function nextFloor(hard) {
   loadFloor();
   SFX.stairs();
 }
-

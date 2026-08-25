@@ -100,11 +100,15 @@ module.exports = async ({ page, context, consoleErrors }) => {
     const out = {};
     const saved = { enemies: G.enemies, eshots: G.eshots, lasers: G.lasers, inv: G.player.invuln };
     G.enemies = []; G.eshots = []; G.lasers = [];
+    const savedFloor = G.floorNum;
+    G.floorNum = FLOOR_COUNT;   // MEGA 只在第 12 层登场——血量上限按真实出战楼层算
     const e = makeBoss(FINAL_BOSS_DEF, W / 2, H / 2);
     e.spawnT = 0;
     G.enemies = [e];
     out.hpBase = FINAL_BOSS_DEF.hp >= 40000;
-    out.hpFloor = e.maxHpRef >= Math.round(estimatePlayerDPS(G.player) * FINAL_MIN_FIGHT_SECONDS);
+    // 用户设定：最终 Boss 同规则——血量不超过玩家 60s 站桩输出，不设下限
+    out.hpCap = e.maxHpRef <= Math.round(estimatePlayerDPS(G.player) * BOSS_CAP_FIGHT_SECONDS);
+    out.hpNoMin = e.maxHpRef <= FINAL_BOSS_DEF.hp;
 
     // let the real idle→attack picker run: outside rage it should stack one
     // side cast on the primary, in rage two — and all names distinct
@@ -158,8 +162,9 @@ module.exports = async ({ page, context, consoleErrors }) => {
     out.apoDetonates = out.apoShots >= ms.length * 3;
 
     // a side-cast beam is anchored to a shadow context — it must still die
-    // with the boss
+    // with the boss. 击杀走原楼层分支：避免在第 12 层触发通关/抉择的元数据写入
     G.lasers = []; G.eshots = [];
+    G.floorNum = savedFloor;
     const ctxCast = Object.assign(Object.create(e), {
       phase: 0, t: 0, data: {}, mark: null, marks: null, aimLine: null, angle: 0, hops: 0,
     });
@@ -177,10 +182,12 @@ module.exports = async ({ page, context, consoleErrors }) => {
     G.enemies = saved.enemies; G.eshots = saved.eshots; G.lasers = saved.lasers;
     G.player.invuln = saved.inv;
     G.player.hp = G.player.maxHp;
+    G.floorNum = savedFloor;
     return out;
   });
   ok('最终 Boss 基础血量 >= 40000', finalBuff.hpBase);
-  ok('最终 Boss 血量至少扛住 60s 玩家 DPS', finalBuff.hpFloor);
+  ok('最终 Boss 血量不超过 60s 玩家站桩输出', finalBuff.hpCap);
+  ok('最终 Boss 不再保底抬血量（不设下限）', finalBuff.hpNoMin);
   ok('最终 Boss 平时主副技能同时施放', finalBuff.sideCasts >= 1 && finalBuff.sideDistinct,
     JSON.stringify(finalBuff));
   ok('狂暴后同时施放 3 个技能（主 + 2 副）', finalBuff.rageSides >= 2, 'rageSides=' + finalBuff.rageSides);
@@ -191,7 +198,7 @@ module.exports = async ({ page, context, consoleErrors }) => {
   ok('副技能光束随 Boss 死亡清除', finalBuff.sideLaserSpawned && finalBuff.sideLaserCleared);
 
   // ------------------------------------------- new balance & presentation rules
-  section('蓄力激光 + Boss 30s 下限 + 楼层横幅');
+  section('蓄力激光 + Boss 60s 站桩上限 + 楼层横幅');
   const newRules = await page.evaluate(async () => {
     const out = {};
     const frame = () => new Promise(r => requestAnimationFrame(r));
@@ -224,7 +231,8 @@ module.exports = async ({ page, context, consoleErrors }) => {
     for (let i = 0; i < 30; i++) updatePlay(1 / 60);
     out.chargeBleeds = p.laserCharge === 0;
 
-    // boss hp lower bound: a pumped build still faces >= 30s of fighting
+    // boss hp cap: even a pumped build faces at most ~60s of fighting — and
+    // there is no minimum, so a stacked build may melt a boss in seconds
     const savedFloorNum = G.floorNum;
     G.floorNum = 6;
     const pumped = makePlayer();
@@ -232,7 +240,9 @@ module.exports = async ({ page, context, consoleErrors }) => {
     const savedPlayer = G.player; G.player = pumped;
     const dps = estimatePlayerDPS(pumped);
     const b6 = makeBoss(bossDefForFloor(6), W / 2, H / 2);
-    out.minHpHolds = b6.maxHpRef / dps >= 30;
+    out.maxCapHolds = b6.maxHpRef <= Math.round(dps * BOSS_CAP_FIGHT_SECONDS);
+    out.noMinHolds = b6.maxHpRef <= BOSS_DEFS[5].hp;   // never inflated past design hp
+    out.fastKill = b6.maxHpRef / dps < 10;             // ~8.7s: allowed
     // floor 1 keeps its tutorial hp even for the same pumped build
     G.floorNum = 1;
     const b1 = makeBoss(bossDefForFloor(1), W / 2, H / 2);
@@ -246,34 +256,39 @@ module.exports = async ({ page, context, consoleErrors }) => {
   ok('激光蓄力满才发射（约 ' + 0.5 + 's）', newRules.chargeGate);
   ok('蓄力期间不再发普通眼泪', newRules.tearsSuppressed);
   ok('提前松手蓄力清零', newRules.chargeBleeds);
-  ok('2 层起 Boss 至少扛住 30s 玩家 DPS', newRules.minHpHolds);
+  ok('2 层起 Boss 血量不超过 60s 玩家站桩输出', newRules.maxCapHolds);
+  ok('Boss 血量不再按 DPS 抬下限（允许 10s 内速杀）', newRules.noMinHolds && newRules.fastKill);
   ok('第 1 层 Boss 血量保持教学难度', newRules.floor1Untouched);
 
-  // ------------------------------------ boss hp lower bound: ~30s of player dps
-  const bossHpFloor = await page.evaluate(() => {
+  // ------------------------------------ boss hp cap: at most ~60s of player dps
+  const bossHpCap = await page.evaluate(() => {
     const p = G.player;
     const savedFloor = G.floorNum;
     const saved = { damage: p.damage, fireDelay: p.fireDelay, multishot: p.multishot, laser: p.laser, crit: p.crit, familiars: p.familiars, poison: p.poison };
-    // a stacked build on floor 2: static hp alone would melt Duodeno
+    // a stacked build on floor 2: static hp alone melts Duodeno — and now it should
     Object.assign(p, { damage: 60, fireDelay: 0.1, multishot: 4, laser: false, crit: 0, familiars: 0, poison: 0 });
     G.floorNum = 2;
     const strong = makeBoss(BOSS_DEFS[1], W / 2, H / 2);
-    const want = Math.round(estimatePlayerDPS(p) * BOSS_MIN_FIGHT_SECONDS);
+    const dps = estimatePlayerDPS(p);
     // floor 1 keeps the tutorial fight even for the same stacked build
     G.floorNum = 1;
     const tut = makeBoss(BOSS_DEFS[0], W / 2, H / 2);
     G.floorNum = savedFloor;
     Object.assign(p, saved);
     return {
-      raised: strong.hp === want && strong.hp > BOSS_DEFS[1].hp,
+      staysBase: strong.hp === BOSS_DEFS[1].hp,
+      withinCap: strong.hp <= Math.round(dps * BOSS_CAP_FIGHT_SECONDS),
+      fastKill: strong.hp / dps < 10,
       barTracks: strong.maxHpRef === strong.hp,
       tutorialUntouched: tut.hp === BOSS_DEFS[0].hp,
-      hp: strong.hp, want,
+      hp: strong.hp, dps, base: BOSS_DEFS[1].hp,
     };
   });
-  ok('叠满输出时 Boss 血量抬到 ~30s×dps', bossHpFloor.raised, bossHpFloor.hp + ' vs ' + bossHpFloor.want);
-  ok('血条基准跟随抬高后的血量', bossHpFloor.barTracks);
-  ok('第 1 层 Boss 不受 30s 下限影响', bossHpFloor.tutorialUntouched);
+  ok('叠满输出时 Boss 血量保持设计值（不再被抬高）', bossHpCap.staysBase, bossHpCap.hp + ' vs base ' + bossHpCap.base);
+  ok('Boss 血量不超过 60s 玩家站桩输出上限', bossHpCap.withinCap, bossHpCap.hp + ' vs 60s×' + bossHpCap.dps);
+  ok('数值堆高时允许 10s 内速杀 Boss', bossHpCap.fastKill, (bossHpCap.hp / bossHpCap.dps).toFixed(1) + 's');
+  ok('血条基准跟随最终血量', bossHpCap.barTracks);
+  ok('第 1 层 Boss 不受血量上限影响', bossHpCap.tutorialUntouched);
 
   // --------------------------------------------- Brimstone hold-to-charge
   const chargeTest = await page.evaluate(async () => {

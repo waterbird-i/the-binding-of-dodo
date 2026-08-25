@@ -203,7 +203,7 @@ function grantUnlockedItem(u) {
   const def = ITEM_BY_ID[u.id];
   const p = G.player;
   if (!def || !p || G.state !== 'play') return false;
-  def.apply(p);
+  applyItemToPlayer(p, def);
   clampPlayerStats(p);
   p.itemsTaken.push(def.id);
   spawnSplash(G, p.x, p.y - 20, '#f4d03f');

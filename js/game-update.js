@@ -146,11 +146,11 @@ function updatePlay(dt) {
       } else {
         ped.taken = true;
         const hadFlight = p.flight;
-        ped.def.apply(p);
+        const hpBonus = applyItemToPlayer(p, ped.def);
         clampPlayerStats(p);
         p.itemsTaken.push(ped.def.id);
         noteItemTaken();
-        G.toast = { title: ped.def.name, desc: ped.def.desc, t: 2.6 };
+        G.toast = { title: ped.def.name, desc: ped.def.desc + (hpBonus ? '（上限折攻击 +' + hpBonus + '）' : ''), t: 2.6 };
         SFX.item();
         // flight pickup flourish: feathers burst out as the wings sprout
         if (!hadFlight && p.flight) spawnFeathers(G, p.x, p.y);
@@ -234,11 +234,11 @@ function updatePlay(dt) {
         p.coins -= w.price;
         w.taken = true;
         const hadFlight = p.flight;
-        w.def.apply(p);
+        const hpBonus = applyItemToPlayer(p, w.def);
         clampPlayerStats(p);
         p.itemsTaken.push(w.def.id);
         noteItemTaken();
-        G.toast = { title: w.def.name, desc: w.def.desc, t: 2.6 };
+        G.toast = { title: w.def.name, desc: w.def.desc + (hpBonus ? '（上限折攻击 +' + hpBonus + '）' : ''), t: 2.6 };
         SFX.coin(); SFX.item();
         if (!hadFlight && p.flight) spawnFeathers(G, p.x, p.y);
         checkTransformations(G, p);
@@ -311,4 +311,3 @@ function updatePlay(dt) {
   if (G.floorIntro) { G.floorIntro.t -= dt; if (G.floorIntro.t <= 0) G.floorIntro = null; }
   G.shake = Math.max(0, G.shake - dt * 40);
 }
-

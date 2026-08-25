@@ -6,7 +6,9 @@ module.exports = async ({ page, context, consoleErrors }) => {
   const run = await page.evaluate(async () => {
     const log = [];
     const frame = () => new Promise(r => requestAnimationFrame(r));
-    const godMode = () => { G.player.maxHp = 24; G.player.hp = 24; G.player.invuln = 5; };
+    // 强 build：Boss 血量按 60s 站桩输出封顶、不设下限（js/boss-core.js），
+    // 只有 DPS 够高才看得到设计血量曲线——弱 build 的上限断言在 02 套件
+    const godMode = () => { G.player.maxHp = 24; G.player.hp = 24; G.player.invuln = 5; G.player.damage = 400; };
     startRun();
     for (let floor = 1; floor <= FLOOR_COUNT; floor++) {
       godMode();
@@ -38,7 +40,10 @@ module.exports = async ({ page, context, consoleErrors }) => {
       G.player.x = G.room.trapdoor.x; G.player.y = G.room.trapdoor.y;
       for (let i = 0; i < 8 && G.floorNum === floor; i++) { godMode(); await frame(); }
     }
-    return { log, state: G.state, kills: G.stats.kills, time: G.stats.time };
+    // 设计血量对照表：断言「不按 DPS 抬下限」在页面上下文里查（Node 侧没有 BOSS_DEFS）
+    const defHp = {};
+    for (const d of BOSS_DEFS) defHp[d.id] = d.hp;
+    return { log, defHp, state: G.state, kills: G.stats.kills, time: G.stats.time };
   });
   ok('12 层跑通没有中断', !run.error, run.error);
   if (!run.error) {
@@ -47,6 +52,9 @@ module.exports = async ({ page, context, consoleErrors }) => {
     ok('第 12 层触发第 13 个最终 Boss', !!run.log[12] && run.log[12].final === true,
       JSON.stringify(run.log[12] || null));
     ok('Boss 血量随层数递增', run.log.slice(0, 12).every((b, i, a) => i === 0 || b.hp > a[i - 1].hp),
+      run.log.map(b => b.hp).join(','));
+    ok('Boss 血量不超过设计值（不按 DPS 抬下限）',
+      run.log.every(b => b.hp <= run.defHp[b.id]),
       run.log.map(b => b.hp).join(','));
     ok('不同章节地板配色不同', new Set(run.log.map(b => b.theme)).size >= 8,
       [...new Set(run.log.map(b => b.theme))].join(','));

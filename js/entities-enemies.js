@@ -56,10 +56,15 @@ function damageEnemy(G, e, dmg, kvx, kvy) {
     e.knockX += (kvx / kl) * kn * 4;
     e.knockY += (kvy / kl) * kn * 4;
   }
+  // 生气 dodo: every landed hit feeds the meter (kills and pain feed it too)
+  if (G.player.charId === 'rage') {
+    addRage(G.player, RAGE_HIT);
+    rageMarkCombat(G.player);
+  }
   // 生气 dodo: enemies at death's door (15%) are executed outright
   if (!e.dead && e.hp > 0 && !e.isBoss && G.player.charId === 'rage' && e.hp <= e._hp0 * 0.15) {
     e.hp = 0;
-    spawnBlood(G, e.x, e.y, 18);
+    spawnExecFX(G, e.x, e.y);
   }
   if (e.hp <= 0 && !e.dead) killEnemy(G, e);
 }
@@ -467,6 +472,7 @@ function hurtPlayer(G, dmg, fromX, fromY) {
     G.floorDamage = (G.floorDamage || 0) + dmg;
     if (G.room && G.room.kind === 'boss') G.bossFightHurt = true;
     addRage(p, 0.4);
+    rageMarkCombat(p);
   }
   p.invuln = 1.1 + (p.invulnBonus || 0);
   p.hurtFlash = 0.35;
