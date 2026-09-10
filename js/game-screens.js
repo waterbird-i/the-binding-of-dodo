@@ -299,7 +299,7 @@ function renderPause() {
   ctx.fillStyle = '#e8dcc0';
   ctx.fillText('暂 停', W / 2, 132);
 
-  // two panels side by side: attribute sheet (left) + leaderboard (right)
+  // attribute sheet (left); leaderboard (right) only when the platform SDK is present
   const rows = [
     ['生命', G.floorCurse === 'unknown' ? '???'
       : Math.ceil(p.hp / 2) + ' / ' + Math.ceil(p.maxHp / 2) + ' 心'
@@ -311,20 +311,22 @@ function renderPause() {
     ['移速', Math.round(p.moveSpeed)],
   ];
   const rowH = 30, boxY = 152, boxH = rows.length * rowH + 96;
-  const lx = 44, lw = 432, px = lx + 26, py = boxY + 34;
+  const showBoard = LB.sdkPresent;
+  const lw = 432, lx = showBoard ? 44 : (W - lw) / 2;
+  const px = lx + 26, py = boxY + 34;
   const rx = 500, rw = 416;
   ctx.fillStyle = 'rgba(20,14,10,0.72)';
   ctx.strokeStyle = '#3b2c1d';
   ctx.lineWidth = 3;
   ctx.beginPath(); ctx.rect(lx, boxY, lw, boxH); ctx.fill(); ctx.stroke();
-  ctx.beginPath(); ctx.rect(rx, boxY, rw, boxH); ctx.fill(); ctx.stroke();
+  if (showBoard) { ctx.beginPath(); ctx.rect(rx, boxY, rw, boxH); ctx.fill(); ctx.stroke(); }
 
   ctx.font = 'bold 15px Trebuchet MS';
   ctx.textAlign = 'left';
   ctx.fillStyle = 'rgba(232,220,192,0.55)';
   const curseTag = G.floorCurse ? '　·　' + FLOOR_CURSES[G.floorCurse].name : '';
   ctx.fillText(FLOOR_NAMES[G.floorNum - 1] + '　第 ' + G.floorNum + ' / ' + FLOOR_COUNT + ' 层' + curseTag, px, py - 12);
-  ctx.fillText('最速通关榜', rx + 26, py - 12);
+  if (showBoard) ctx.fillText('最速通关榜', rx + 26, py - 12);
   rows.forEach(([k, v], i) => {
     const y = py + 18 + i * rowH;
     ctx.fillStyle = 'rgba(216,204,176,0.8)';
@@ -344,7 +346,7 @@ function renderPause() {
   ctx.fillText('道具 ' + G.stats.items + ' 件　击杀 ' + G.stats.kills + '　金币 ' + p.coins +
     '　时间 ' + fmtTime(G.stats.time) + '　种子 ' + G.seedStr, lx + lw / 2, py + 36 + rows.length * rowH);
 
-  renderLeaderboardPanel(rx, py, rw);
+  if (showBoard) renderLeaderboardPanel(rx, py, rw);
 
   // taken items: every icon, no names — wrapped and shrunk so any count fits
   const taken = p.itemsTaken;
@@ -443,7 +445,8 @@ function renderDumateOffer() {
     ctx.fillText(b.label, b.x + b.w / 2, b.y + 44);
     ctx.font = '13px Trebuchet MS';
     ctx.fillStyle = sel ? 'rgba(216,214,236,0.9)' : 'rgba(160,156,178,0.7)';
-    ctx.fillText(b.sub, b.x + b.w / 2, b.y + 72);
+    const sub = (i === 1 && !LB.sdkPresent) ? '立即通关' : b.sub;
+    ctx.fillText(sub, b.x + b.w / 2, b.y + 72);
   });
   ctx.font = 'bold 16px Georgia';
   ctx.fillStyle = ready && Math.sin(t * 5) > -0.3 ? '#efe6d2' : 'rgba(239,230,210,0.35)';
