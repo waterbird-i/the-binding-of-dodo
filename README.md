@@ -10,7 +10,7 @@
 > 一句话总结：约 10000 行原生 JavaScript，零依赖、零构建、零素材文件，
 > 双击 `index.html` 就能玩完整的 12 层肉鸽，另有 3500 行 Playwright 测试盯着它别坏。
 
-**在线试玩**：[the-binding-of-dodo.popo.baidu-int.com](https://the-binding-of-dodo.popo.baidu-int.com)（内网，带全服排行榜）
+**在线试玩**：[waterbird-i.github.io/the-binding-of-dodo](https://waterbird-i.github.io/the-binding-of-dodo/)（公开版，纯单机）
 
 先看两段实机动图。普通战斗，三连射清房：
 
@@ -32,7 +32,7 @@
 
 ## 快速开始
 
-不用装任何东西，拉取本项目后直接打开 `index.html` 就可游玩，或者直接**在线试玩**：[the-binding-of-dodo.popo.baidu-int.com](https://the-binding-of-dodo.popo.baidu-int.com)（内网，带全服排行榜）
+不用装任何东西，拉取本项目后直接打开 `index.html` 就可游玩，或者直接**在线试玩**：[waterbird-i.github.io/the-binding-of-dodo](https://waterbird-i.github.io/the-binding-of-dodo/)（公开版，纯单机；全服排行榜仅内网部署版提供）
 
 没有构建步骤、没有 npm 依赖。脚本全部是普通 `<script>` 标签而非 ES module，
 正是为了保证 `file://` 直开可玩。排行榜依赖线上接口，本地打开时会自动隐藏。
@@ -222,7 +222,7 @@ dodo 均衡；生气 dodo 打中敌人就涨怒气，越战越狂，攒满暴走
 
 ### 排行榜与音效
 
-全服排行榜挂在 popo Runtime 动态数据上，线上版本自动启用，本地 file:// 打开自动隐藏。
+全服排行榜挂在线上动态数据服务上：内网部署版自动启用，公开版与本地 file:// 打开时自动隐藏。
 音效全部 WebAudio 实时合成：射击、命中、开门、Boss 落地、爆炸（分层合成，
 高频爆裂 + 全频冲击 + 次低音重击 + 低频余响）、死亡与通关旋律，没有一个音频文件。
 
@@ -317,7 +317,7 @@ python3 test/make-gifs.py         # Pillow 拼装 GIF（需要系统 Pillow）
 
 ## 已知限制
 
-- 排行榜接口在内网，外网环境等于纯单机（游戏本身不受影响）。
+- 排行榜接口仅在内网部署版可用；公开版与本地打开等于纯单机（游戏本身不受影响）。
 - 房间只有标准 1×1 一种形状，没有原作 Rebirth 的 2×2 和 L 形异形房。
 - 每层 Boss 固定，不像原作是从池子里抽。想要的随机性目前给了道具和房型。
 - 难度按「会走位的普通人」标定。真正的原作老手拿到 Brimstone 之后，中期大概率碾过去。

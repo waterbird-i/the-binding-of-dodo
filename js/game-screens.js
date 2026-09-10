@@ -251,7 +251,7 @@ function lbTimeStr(ms) {
   return m + ':' + (s < 10 ? '0' : '') + s.toFixed(1);
 }
 
-// Right-hand pause panel: fastest-clear leaderboard from popo Runtime data.
+// Right-hand pause panel: fastest-clear leaderboard from platform dynamic data.
 function renderLeaderboardPanel(rx, py, rw) {
   ctx.font = '14px Trebuchet MS';
   ctx.textAlign = 'center';

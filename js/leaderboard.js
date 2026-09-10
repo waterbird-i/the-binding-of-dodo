@@ -1,12 +1,12 @@
 'use strict';
-// ============ leaderboard (popo Runtime dynamic data) ============
+// ============ leaderboard (platform dynamic data) ============
 // Backed by the platform-injected window.PopSDK, which only exists when the
-// game is served from its popo domain. Everything here degrades to a no-op
+// game is served from its hosting domain. Everything here degrades to a no-op
 // when the SDK is absent (double-clicked index.html, local server, tests),
 // so the game itself never depends on it.
 
 const LB_OBJECT = 'run';
-const LB_DOC_URL = 'https://ku.baidu-int.com/knowledge/HFVrC7hq1Q/pKzJfZczuc/4i9XFeQzYr/AtyPKxr4zXpRmD';
+const LB_DOC_URL = 'https://github.com/waterbird-i/the-binding-of-dodo/blob/main/CHANGELOG.md';
 
 const LB = {
   sdkPresent: !!window.PopSDK,
