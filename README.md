@@ -322,12 +322,9 @@ python3 test/make-gifs.py         # Pillow 拼装 GIF（需要系统 Pillow）
 - 每层 Boss 固定，不像原作是从池子里抽。想要的随机性目前给了道具和房型。
 - 难度按「会走位的普通人」标定。真正的原作老手拿到 Brimstone 之后，中期大概率碾过去。
 
-## 鸣谢
+## 社区
 
-感谢 [Linux.do 社区](https://linux.do/) 的提名与讨论，玩法交流、问题反馈和使用体验分享都在社区帖子里，欢迎继续来聊。
-
-Thanks to the [Linux.do community](https://linux.do/) for the nomination and the discussion —
-gameplay talk, bug reports and clear runs all happen there, and more are welcome.
+[Linux.do](https://linux.do/) 欢迎来社区共同讨论，交流玩法、反馈问题和分享使用体验。
 
 ## 致敬与免责
 
