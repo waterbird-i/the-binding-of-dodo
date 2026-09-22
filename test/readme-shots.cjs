@@ -15,6 +15,9 @@ const { ROOT, INDEX_URL, loadPlaywright, findChromium } = require('./helpers.cjs
 const OUT = path.join(ROOT, 'screenshots');
 const FRAMES = path.join(ROOT, '.playtest', 'gif-frames');
 const WANT_GIF = process.argv.includes('--gif');
+// 每张 GIF 帧代表的游戏时间，必须和 test/gif-frames.cjs 的 STEP_MS 一致：
+// 两条抓帧路径写出的 times.json 都按「每帧显示多久」这个约定
+const STEP_MS = 66.7;
 
 // 解锁全部角色与图鉴条目，标题环形选人才好看
 const metaInit = () => {
@@ -377,7 +380,10 @@ const metaInit = () => {
           }
         }
       }, i);
-      gpTimes.push(Date.now());
+      // times.json 的约定是「每帧显示多久」（见 test/gif-frames.cjs 的 STEP_MS），
+      // 不是墙钟时间戳：无头截图每张要几百毫秒，写 Date.now() 会让 make-gifs.py
+      // 算出几百万毫秒的 duration，Pillow 直接抛 struct.error 并把已有 GIF 覆盖坏。
+      gpTimes.push(STEP_MS);
       await canvas.screenshot({ path: path.join(FRAMES, 'gp-' + String(i).padStart(3, '0') + '.png') });
     }
     await page.evaluate(() => { fireStack.length = 0; for (const k in keys) keys[k] = false; });
@@ -423,7 +429,7 @@ const metaInit = () => {
             : (ty > 0 ? 'ArrowDown' : 'ArrowUp'));
         }
       }, i);
-      bossTimes.push(Date.now());
+      bossTimes.push(STEP_MS);
       await canvas.screenshot({ path: path.join(FRAMES, 'boss-' + String(i).padStart(3, '0') + '.png') });
     }
     await page.evaluate(() => { fireStack.length = 0; for (const k in keys) keys[k] = false; });

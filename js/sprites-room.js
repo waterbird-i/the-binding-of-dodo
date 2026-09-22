@@ -874,7 +874,7 @@ function drawDoor(g, side, state, kind) {
         g.fillStyle = '#e7b93c';
         g.beginPath(); g.arc(sx, -22, 7.5, 0, TAU); g.fill(); g.stroke();
         g.fillStyle = '#9c7418';
-        g.font = 'bold 10px Trebuchet MS';
+        g.font = 'bold 10px ' + UI_SANS;
         g.textAlign = 'center'; g.textBaseline = 'middle';
         g.fillText('¢', sx, -21);
       }

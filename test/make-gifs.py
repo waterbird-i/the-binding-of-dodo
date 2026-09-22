@@ -18,6 +18,10 @@ def build(prefix: str, out_name: str) -> None:
     files = sorted(FRAMES.glob(f'{prefix}-[0-9]*.png'))
     durations = json.loads((FRAMES / f'{prefix}-times.json').read_text())
     assert len(files) == len(durations), (len(files), len(durations))
+    # times.json 存的就是每帧该显示多久（毫秒），两条抓帧路径都必须按这个约定写：
+    # test/gif-frames.cjs 写的是固定 STEP_MS，test/readme-shots.cjs --gif 以前
+    # 误写了 Date.now() 墙钟时间戳，导致这里算出几百万毫秒、Pillow 抛 struct.error，
+    # 还会先把已有的 GIF 覆盖成残file。那边已改成写固定步长。
     deltas = [round(d) for d in durations]
 
     frames = []

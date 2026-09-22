@@ -4,7 +4,15 @@ function render() {
   ctx.save();
   if (G.shake > 0 && !G.paused) ctx.translate(rand(-G.shake, G.shake) * 0.5, rand(-G.shake, G.shake) * 0.5);
 
-  if (G.state === 'menu') { renderMenu(); ctx.restore(); applyPostFX(ctx); return; }
+  if (G.state === 'menu') {
+    renderMenu();
+    ctx.restore();
+    applyPostFX(ctx);
+    // the codex is an interface, not scenery: drawn above the grain so its 12px
+    // condition lines stay readable (renderMenu no longer draws it itself)
+    if (G.unlockPanel) renderUnlockPanel();
+    return;
+  }
 
   // room base
   const room = G.room;
@@ -74,8 +82,12 @@ function render() {
     drawPedestal(ctx, ped);
     // devil deals wear their price in hearts under the pedestal
     if (ped.devilPrice && !ped.taken && ped.def) {
+      // affordable deals glow, ones you can't pay for are greyed — the pedestal
+      // itself now says whether the trade is possible, not just the tooltip
+      const canPay = devilDealAfford(G.player, ped.devilPrice);
       for (let i = 0; i < ped.devilPrice; i++) {
-        drawHeartShape(ctx, ped.x - (ped.devilPrice - 1) * 10 + i * 20, ped.y + 36, 11, '#c9231a', PAL.outline);
+        drawHeartShape(ctx, ped.x - (ped.devilPrice - 1) * 10 + i * 20, ped.y + 36, 11,
+          canPay ? '#c9231a' : '#4a3f38', canPay ? PAL.outline : '#2a221d');
       }
     }
   }
@@ -156,7 +168,7 @@ function render() {
     if (pa.kind === 'text') {
       ctx.save();
       ctx.globalAlpha = clamp(pa.life / pa.maxLife, 0, 1);
-      ctx.font = 'bold ' + (pa.size || 14) + 'px Trebuchet MS';
+      ctx.font = 'bold ' + (pa.size || 14) + 'px ' + UI_SANS;
       ctx.textAlign = 'center';
       ctx.strokeStyle = 'rgba(30,12,6,0.9)';
       ctx.lineWidth = 3;
@@ -233,9 +245,25 @@ function render() {
     ctx.fillRect(0, 0, W, H);
   }
 
+  // room-entry veil: walking through a door used to be an instant teleport with
+  // nothing in between (G.fadeT was declared for this and never wired up)
+  if (G.fadeT > 0) {
+    ctx.fillStyle = 'rgba(4,3,2,' + (0.8 * clamp(G.fadeT / 0.14, 0, 1)).toFixed(3) + ')';
+    ctx.fillRect(0, 0, W, H);
+  }
+  // screen-level damage readout, over the room but under the interface
+  drawScreenDamage(ctx);
+  ctx.restore();
+
+  // Vignette + grain belong to the *scene*: they used to be composited last, on
+  // top of everything, which put the strongest part of the vignette (0.26–0.39
+  // alpha, measured at the heart row and the minimap) straight over the two
+  // readouts the player checks most, plus a 10% noise overlay that made 11–13px
+  // HUD text look furry. The interface now draws above them and stays crisp.
+  applyPostFX(ctx);
+
   renderHUD();
   if (G.state === 'play' && G.floorIntro) renderFloorIntro();
-  ctx.restore();
 
   if (G.state === 'play' && G.mapOverlay && G.floorCurse !== 'lost') drawFullMap(ctx, G.floor, G.room);
   if (G.state === 'dead') renderDeath();
@@ -245,10 +273,33 @@ function render() {
   // the map overlay stands in for the pause panel: on touch it opens by pausing
   if (G.paused && !G.mapOverlay) (G.unlockPanel ? renderUnlockPanel() : renderPause());
   if (G.unlockPopups.length) renderUnlockPopups();
-  applyPostFX(ctx);
+}
+
+// Two screen-level readouts the game was missing entirely. Getting hit used to
+// be visible only on the character (a colour flash) and in the room (a shake) —
+// nothing told the *player* at the edge of their vision that they had just been
+// hurt, and nothing at all warned them while sitting on the last heart. Both are
+// edge blooms, so they never hide the middle of the screen where the bullets are.
+function drawScreenDamage(g) {
+  if (G.state !== 'play' && G.state !== 'dead') return;
+  const p = G.player;
+  const hurt = clamp((G.hurtT || 0) / 0.45, 0, 1);
+  const low = p && p.hp > 0 && p.hp <= 2 && G.state === 'play'
+    ? 0.5 + 0.5 * Math.sin(performance.now() / 260) : 0;
+  const k = Math.max(hurt * 0.85, low * 0.5);
+  if (k <= 0.01) return;
+  g.save();
+  const grad = g.createRadialGradient(W / 2, H / 2, H * 0.3, W / 2, H / 2, H * 0.95);
+  grad.addColorStop(0, 'rgba(176,18,10,0)');
+  grad.addColorStop(1, 'rgba(176,18,10,' + (0.55 * k).toFixed(3) + ')');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, W, H);
+  g.restore();
 }
 
 function drawEnemyByType(e) {
+  // frost ring first, so it sits under the body
+  if ((e.slowT || 0) > 0 && e.spawnT <= 0) drawFrostRing(e);
   // materialize animation: rises out of the floor, fades in, with a
   // shrinking ring on the ground so the grace window reads clearly
   if (e.spawnT > 0) {
@@ -280,7 +331,11 @@ const ENEMY_REF_R = {
 };
 function drawEnemyCore(e) {
   const ref = ENEMY_REF_R[e.type];
-  const k = ref ? e.r / ref : 1;
+  // hitPop: a body that just took a hit swells ~7% for a tenth of a second. With
+  // the 2-frame hit-stop on the same enemy this reads as an impact, which is the
+  // confirmation that was missing when every tear ending looked identical.
+  const pop = 1 + 0.07 * clamp((e.hitPop || 0) / 0.12, 0, 1);
+  const k = (ref ? e.r / ref : 1) * pop;
   const scaled = Math.abs(k - 1) > 0.01;
   if (scaled) {
     ctx.save();
@@ -313,7 +368,7 @@ function renderHUD() {
     drawHeartShape(ctx, 34, 30, 15, '#3a2c22', PAL.outline);
     ctx.save();
     ctx.fillStyle = '#efe6d2';
-    ctx.font = 'bold 18px Trebuchet MS';
+    ctx.font = 'bold 18px ' + UI_SANS;
     ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
     ctx.fillText('?', 54, 31);
     ctx.restore();
@@ -331,7 +386,7 @@ function renderHUD() {
   ctx.lineWidth = 2.5;
   ctx.beginPath(); ctx.arc(34, 60, 8, 0, TAU); ctx.fill(); ctx.stroke();
   ctx.fillStyle = '#efe6d2';
-  ctx.font = 'bold 16px Trebuchet MS';
+  ctx.font = 'bold 16px ' + UI_SANS;
   ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
   ctx.fillText('× ' + p.coins, 48, 61);
   // bombs
@@ -343,7 +398,7 @@ function renderHUD() {
   ctx.lineWidth = 2;
   ctx.beginPath(); ctx.moveTo(37, 79); ctx.quadraticCurveTo(41, 74, 38, 72); ctx.stroke();
   ctx.fillStyle = '#efe6d2';
-  ctx.font = 'bold 16px Trebuchet MS';
+  ctx.font = 'bold 16px ' + UI_SANS;
   ctx.fillText('× ' + p.bombs, 48, 87);
   // 生气 dodo: the rage meter sits beside the consumables
   if (p.charId === 'rage') {
@@ -357,13 +412,13 @@ function renderHUD() {
     ctx.lineWidth = 2;
     ctx.strokeRect(rx, ry, rw, rh);
     ctx.fillStyle = rageBerserk(p) ? '#e8452f' : 'rgba(240,230,210,0.7)';
-    ctx.font = 'bold 11px Trebuchet MS';
+    ctx.font = 'bold 11px ' + UI_SANS;
     ctx.fillText(rageBerserk(p) ? '暴走!' : '怒气', rx + rw + 6, ry + 8);
   }
   // 暗黑 dodo: reaped soul flames toward the next half soul heart
   if (p.charId === 'dark') {
     ctx.fillStyle = '#8fb8dd';
-    ctx.font = 'bold 12px Trebuchet MS';
+    ctx.font = 'bold 12px ' + UI_SANS;
     ctx.fillText('魂火 ' + ((p.soulSparks || 0) % 3) + ' / 3', 104, 88);
   }
   // active item slot: icon in a frame, charge pips underneath
@@ -392,7 +447,7 @@ function renderHUD() {
     }
     if (full) {
       ctx.fillStyle = 'rgba(244,208,63,' + (0.55 + 0.35 * Math.sin(performance.now() / 250)) + ')';
-      ctx.font = 'bold 12px Trebuchet MS';
+      ctx.font = 'bold 12px ' + UI_SANS;
       ctx.textAlign = 'center';
       ctx.fillText(IS_TOUCH ? '道具' : '空格', ax, ay + 47);
       ctx.textAlign = 'left';
@@ -403,7 +458,7 @@ function renderHUD() {
   // floor name (screen-fixed, so outside the HUD column shift)
   ctx.save();
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.font = 'bold 13px Georgia';
+  ctx.font = 'bold 13px ' + UI_SERIF;
   ctx.fillStyle = 'rgba(240,230,210,0.5)';
   ctx.fillText(FLOOR_NAMES[G.floorNum - 1] || 'BASEMENT', W / 2, H - 18);
   if (G.dev) {
@@ -422,12 +477,21 @@ function renderHUD() {
     ctx.fillRect(bx - 4, by - 4, bw + 8, 18);
     ctx.fillStyle = '#5c0f09';
     ctx.fillRect(bx, by, bw, 10);
+    // Damage lag: a white ghost bar trails the red fill by a fraction of a second
+    // so a big hit reads as a chunk of health coming off, not as the bar quietly
+    // being shorter than last frame. hpLag is advanced in updateEnemies (dt-aware).
+    const ratio = clamp(boss.hp / boss.maxHpRef, 0, 1);
+    const lag = boss.hpLag === undefined ? ratio : boss.hpLag;
+    if (lag > ratio) {
+      ctx.fillStyle = 'rgba(240,230,210,0.55)';
+      ctx.fillRect(bx + bw * ratio, by, bw * (lag - ratio), 10);
+    }
     ctx.fillStyle = boss.rage ? '#e8452f' : '#c9231a';
-    ctx.fillRect(bx, by, bw * clamp(boss.hp / boss.maxHpRef, 0, 1), 10);
+    ctx.fillRect(bx, by, bw * ratio, 10);
     ctx.strokeStyle = PAL.outline; ctx.lineWidth = 2;
     ctx.strokeRect(bx, by, bw, 10);
     ctx.textAlign = 'center';
-    ctx.font = 'bold 15px Georgia';
+    ctx.font = 'bold 15px ' + UI_SERIF;
     ctx.fillStyle = '#efe6d2';
     ctx.strokeStyle = 'rgba(12,8,6,0.85)';
     ctx.lineWidth = 4;
@@ -437,25 +501,38 @@ function renderHUD() {
     ctx.restore();
   }
 
-  // item toast
+  // item toast: it used to appear at full opacity and only fade out. Now it rises
+  // the last few pixels and fades in over ~0.16s, so a pickup announces itself.
   if (G.toast) {
+    const ta = toastAlpha();
+    const rise = (1 - ta) * 10;
     ctx.save();
-    ctx.globalAlpha = clamp(G.toast.t / 0.4, 0, 1);
+    ctx.globalAlpha = ta;
     ctx.textAlign = 'center';
-    ctx.font = 'bold 26px Georgia';
+    ctx.font = 'bold 26px ' + UI_SERIF;
     ctx.fillStyle = '#f3ecd8';
     ctx.strokeStyle = PAL.outline;
     ctx.lineWidth = 5;
-    ctx.strokeText(G.toast.title, W / 2, 96);
-    ctx.fillText(G.toast.title, W / 2, 96);
-    ctx.font = 'italic 17px Georgia';
+    ctx.strokeText(G.toast.title, W / 2, 96 + rise);
+    ctx.fillText(G.toast.title, W / 2, 96 + rise);
+    ctx.font = 'italic 17px ' + UI_SERIF;
     ctx.strokeStyle = 'rgba(23,17,12,0.9)';
     ctx.lineWidth = 4;
-    ctx.strokeText(G.toast.desc, W / 2, 122);
+    ctx.strokeText(G.toast.desc, W / 2, 122 + rise);
     ctx.fillStyle = '#d8ccb0';
-    ctx.fillText(G.toast.desc, W / 2, 122);
+    ctx.fillText(G.toast.desc, W / 2, 122 + rise);
     ctx.restore();
   }
+}
+
+// Toasts store only a countdown, so the fade-in is measured here from the moment
+// this particular toast object first appeared. Identity comparison is enough:
+// every toast is a fresh object literal.
+let _toastRef = null, _toastAge = 0;
+function toastAlpha() {
+  if (G.toast !== _toastRef) { _toastRef = G.toast; _toastAge = 0; }
+  _toastAge += 1 / 60;
+  return clamp(Math.min(_toastAge / 0.16, G.toast.t / 0.4), 0, 1);
 }
 
 // floor entry banner: big location name over a dark band, fades in and out
@@ -474,24 +551,24 @@ function renderFloorIntro() {
   ctx.fillRect(0, bandY, W, bandH);
 
   ctx.textAlign = 'center';
-  ctx.font = 'bold 52px Georgia';
+  ctx.font = 'bold 52px ' + UI_SERIF;
   ctx.lineWidth = 8;
   ctx.strokeStyle = '#0f0a07';
   ctx.strokeText(fi.name, W / 2, H / 2 - 14);
   ctx.fillStyle = '#e8dcc0';
   ctx.fillText(fi.name, W / 2, H / 2 - 14);
 
-  ctx.font = 'bold 20px Georgia';
+  ctx.font = 'bold 20px ' + UI_SERIF;
   ctx.fillStyle = 'rgba(216,204,176,0.9)';
   ctx.fillText('第 ' + fi.num + ' 层　/　共 ' + FLOOR_COUNT + ' 层', W / 2, H / 2 + 28);
   if (fi.hard) {
-    ctx.font = 'bold 17px Georgia';
+    ctx.font = 'bold 17px ' + UI_SERIF;
     ctx.fillStyle = '#e8452f';
     ctx.fillText('危险之路　·　敌人更强　宝物翻倍', W / 2, H / 2 + 54);
   }
   if (fi.curse) {
     const c = FLOOR_CURSES[fi.curse];
-    ctx.font = 'bold 17px Georgia';
+    ctx.font = 'bold 17px ' + UI_SERIF;
     ctx.fillStyle = '#a06be0';
     ctx.fillText(c.name + '　·　' + c.desc, W / 2, H / 2 + (fi.hard ? 78 : 54));
   }

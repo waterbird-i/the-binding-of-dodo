@@ -372,10 +372,14 @@ function updateTears(G, dt) {
         }
       }
     }
+    // Why this tear ended. Every ending used to look and sound identical — the
+    // same 6 particles and the same splash whether the shot connected or quietly
+    // ran out of range — so the player never got confirmation that a hit landed.
     let splash = false;
-    if (t.traveled >= t.range) splash = true;
+    let hitKind = null;   // 'range' | 'wall' | 'block' | 'enemy'
+    if (t.traveled >= t.range) { splash = true; hitKind = 'range'; }
     // rocks block ordinary tears; spectral tears (Ouija Board) fly right through
-    if (!splash && !t.spectral && pointHitsRock(room, t.x, t.y)) splash = true;
+    if (!splash && !t.spectral && pointHitsRock(room, t.x, t.y)) { splash = true; hitKind = 'wall'; }
     const hitW = t.x < FLOOR_X + 4 || t.x > FLOOR_X + FLOOR_W - 4;
     const hitH = t.y < FLOOR_Y + 4 || t.y > FLOOR_Y + FLOOR_H - 4;
     if (hitW || hitH) {
@@ -387,6 +391,7 @@ function updateTears(G, dt) {
         t.traveled = Math.max(0, t.traveled - t.range * 0.25);
       } else {
         splash = true;
+        hitKind = 'wall';
       }
     }
     // hit enemies
@@ -398,25 +403,28 @@ function updateTears(G, dt) {
           // Knight: armored front — tears flying against its facing clang off
           if (knightBlocksTear(e, t.vx, t.vy)) {
             splash = true;
-            spawnSplash(G, t.x, t.y, '#cfd3da');
+            hitKind = 'block';
+            spawnSplash(G, t.x, t.y, '#cfd3da', 0.8);
             break;
           }
           damageEnemy(G, e, tearDamage(t), t.vx, t.vy);
           if (t.poison > 0) { e.poison = t.poison; e.poisonT = 3; }
           if (t.slow > 0) e.slowT = 1.6;
           if (t.hitSet) t.hitSet.add(e);
-          if (!t.piercing) splash = true;
+          if (!t.piercing) { splash = true; hitKind = 'enemy'; }
           break;
         }
       }
     }
-    if (splash) onTearEnd(G, t);
+    if (splash) onTearEnd(G, t, hitKind);
   }
   G.tears = G.tears.filter(t => !t.dead);
 }
 
-// central hook fired when a tear dies: explosions, splitting, splash visuals
-function onTearEnd(G, t) {
+// central hook fired when a tear dies: explosions, splitting, splash visuals.
+// `kind` says why it died, which decides what the burst looks like and sounds
+// like — see updateTears.
+function onTearEnd(G, t, kind) {
   t.dead = true;
   if (t.explosive > 0) explodeAt(G, t.x, t.y, t.explosive, t.damage, t.selfHarm);
   if (t.split > 0) {
@@ -434,7 +442,21 @@ function onTearEnd(G, t) {
       });
     }
   }
-  spawnSplash(G, t.x, t.y, t.color || PAL.tear);
+  if (kind === 'enemy') {
+    // connected: a bigger, wetter burst — this is the confirmation the player
+    // was missing, so it is deliberately louder than the other three endings
+    spawnSplash(G, t.x, t.y, t.color || PAL.tear, 1.5);
+    spawnBlood(G, t.x, t.y, 3);
+  } else if (kind === 'wall') {
+    // dull grey chips and a dead thud: clearly not a hit
+    spawnSplash(G, t.x, t.y, '#9a938a', 0.55);
+    SFX.dull();
+  } else if (kind === 'block') {
+    spawnSplash(G, t.x, t.y, '#cfd3da', 0.7);
+  } else {
+    // ran out of range: a small puff, no impact sound at all
+    spawnSplash(G, t.x, t.y, t.color || PAL.tear, 0.6, true);
+  }
 }
 
 // does the knight's frontal shield stop a tear moving with velocity (vx,vy)?
@@ -448,6 +470,12 @@ function knightBlocksTear(e, vx, vy) {
 
 // brief freeze on the enemy that got hit — 2 frames, the world keeps running
 const HITSTOP_HIT = 2 / 60;
+// World hit-stop, applied by killEnemy (see js/entities-enemies.js): the whole
+// simulation holds for a beat. A kill gets a tick; a boss gets long enough to
+// feel like a chapter ending. Input is still polled every frame, so nothing the
+// player does is dropped — it just resolves a few frames later.
+const FREEZE_KILL = 3 / 60;
+const FREEZE_BOSS = 12 / 60;
 
 // splash damage shared by explosive tears; selfHarm (Ipecac / Boom Fly)
 // makes the blast dangerous to the player too
@@ -464,6 +492,16 @@ function explodeAt(G, x, y, radius, damage, selfHarm) {
   }
   G.shake = Math.max(G.shake, 6);
   SFX.boom();
+  // The blast used to be 14 particles and nothing else — no shockwave, no mark on
+  // the floor. It now gets the expanding ring (the same 'ring' particle the 处决
+  // effect uses) plus a scorch left in the room, so the explosion has a shape and
+  // the room remembers it.
+  G.particles.push({
+    kind: 'ring', x, y, vx: 0, vy: 0, r: radius * 0.35, grow: 1.8, lineW: 4,
+    life: 0.34, maxLife: 0.34, color: 'rgba(240,178,60,0.9)',
+  });
+  // drawStain already honours s.color, so a blast scar is just a very dark stain
+  G.room.stains.push({ x, y, r: radius * 0.45, seed: randi(1, 1e9), color: '#1b1512' });
   for (let i = 0; i < 14; i++) {
     const a = rand(TAU), s = rand(60, 240);
     G.particles.push({
@@ -474,11 +512,14 @@ function explodeAt(G, x, y, radius, damage, selfHarm) {
   }
 }
 
-function spawnSplash(G, x, y, color) {
-  SFX.splash();
-  for (let i = 0; i < 6; i++) {
-    const a = rand(TAU), s = rand(30, 110);
-    G.particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 40, life: rand(0.25, 0.45), maxLife: 0.45, r: rand(1.5, 3.5), color, grav: 500 });
+// `scale` widens and multiplies the burst; `silent` skips the sound entirely
+// (a tear that simply ran out of range should not sound like an impact)
+function spawnSplash(G, x, y, color, scale = 1, silent = false) {
+  if (!silent) SFX.splash(scale);
+  const n = Math.max(3, Math.round(6 * scale));
+  for (let i = 0; i < n; i++) {
+    const a = rand(TAU), s = rand(30, 110) * scale;
+    G.particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 40, life: rand(0.25, 0.45), maxLife: 0.45, r: rand(1.5, 3.5) * Math.min(1.6, scale), color, grav: 500 });
   }
 }
 

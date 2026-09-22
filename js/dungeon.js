@@ -329,7 +329,7 @@ function drawRoomGlyph(g, r, cx, cy, s) {
   g.strokeStyle = '#17110c';
   const text = (t, col, size) => {
     g.fillStyle = col;
-    g.font = 'bold ' + size + 'px Trebuchet MS';
+    g.font = 'bold ' + size + 'px ' + UI_SANS;
     g.textAlign = 'center'; g.textBaseline = 'middle';
     g.fillText(t, 0, 0.5);
   };
@@ -467,9 +467,16 @@ function drawMinimap(g, floor, current) {
   const cell = MINI_CELL, s = b.s;
   g.save();
   g.globalAlpha = 0.92;
-  // backdrop
-  g.fillStyle = 'rgba(10,8,6,0.55)';
+  // The whole minimap is a click target (it opens the floor map) and there was no
+  // way to tell: it now lights up under the pointer, hint line included.
+  const hot = G.hover.kind === 'map';
+  g.fillStyle = hot ? 'rgba(24,18,12,0.8)' : 'rgba(10,8,6,0.55)';
   g.fillRect(b.x, b.y, b.w, b.h);
+  if (hot) {
+    g.strokeStyle = 'rgba(244,208,63,0.7)';
+    g.lineWidth = 2;
+    g.strokeRect(b.x + 1, b.y + 1, b.w - 2, b.h - 2);
+  }
   for (const r of known) {
     const rx = r.gx - current.gx, ry = r.gy - current.gy;
     if (Math.abs(rx) > 2 || Math.abs(ry) > 2) continue;
@@ -480,9 +487,9 @@ function drawMinimap(g, floor, current) {
     drawRoomGlyph(g, r, x + cell / 2, y + cell / 2, 1);
   }
   // hint under the map
-  g.font = '11px Trebuchet MS';
+  g.font = '11px ' + UI_SANS;
   g.textAlign = 'center';
-  g.fillStyle = 'rgba(216,204,176,0.4)';
+  g.fillStyle = hot ? 'rgba(244,208,63,0.9)' : 'rgba(216,204,176,0.4)';
   g.fillText(IS_TOUCH ? '点这里看全图' : 'Tab 全图', b.ox, b.oy + (MINI_H / 2) * s + 16);
   g.restore();
 }
@@ -504,10 +511,10 @@ function drawFullMap(g, floor, current) {
   g.fillStyle = 'rgba(6,4,3,0.82)';
   g.fillRect(0, 0, W, H);
   g.textAlign = 'center';
-  g.font = 'bold 24px Georgia';
+  g.font = 'bold 24px ' + UI_SERIF;
   g.fillStyle = '#e8dcc0';
   g.fillText('本 层 地 图', W / 2, py - 46);
-  g.font = '13px Trebuchet MS';
+  g.font = '13px ' + UI_SANS;
   g.fillStyle = 'rgba(216,204,176,0.55)';
   g.fillText(IS_TOUCH ? '点击任意处继续' : '松开 Tab 继续', W / 2, py + gh + 34);
   for (const r of known) {

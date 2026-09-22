@@ -124,3 +124,20 @@ function drawHUDHearts(g, hp, maxHp, soulHp = 0) {
     }
   }
 }
+
+// Slowed / frozen enemies had no persistent tell at all — the only feedback was a
+// one-off splash when the item landed, and after that a crawling enemy looked
+// exactly like a healthy one. A pale frost ring at the feet says why it is slow,
+// and fades with the remaining duration.
+function drawFrostRing(e) {
+  const k = clamp((e.slowT || 0) / 1.6, 0, 1);
+  const gy = e.y + e.r * 0.9;
+  ctx.save();
+  ctx.strokeStyle = '#9fd8ff';
+  ctx.globalAlpha = 0.25 + 0.45 * k;
+  ctx.lineWidth = 2.5;
+  ctx.beginPath(); ctx.ellipse(e.x, gy, e.r * 1.15, e.r * 0.45, 0, 0, TAU); ctx.stroke();
+  ctx.globalAlpha *= 0.5;
+  ctx.beginPath(); ctx.ellipse(e.x, gy, e.r * 0.7, e.r * 0.28, 0, 0, TAU); ctx.stroke();
+  ctx.restore();
+}

@@ -17,13 +17,34 @@ function renderMenu() {
   ctx.textAlign = 'center';
   ctx.fillStyle = '#e8dcc0';
   ctx.strokeStyle = '#000';
-  ctx.font = 'bold 30px Georgia';
+  ctx.font = 'bold 30px ' + UI_SERIF;
   ctx.fillText('The Binding of', W / 2, 140);
-  ctx.font = 'bold 92px Georgia';
+  ctx.font = 'bold 92px ' + UI_SERIF;
   ctx.lineWidth = 10;
   ctx.strokeText('dodo', W / 2, 232);
   ctx.fillStyle = '#c9231a';
   ctx.fillText('dodo', W / 2, 232);
+  ctx.restore();
+
+  // difficulty chip, top-right: ↑↓ on desktop, a tap on touch (see menuDiffHit)
+  const dr = MENU_DIFF_RECT;
+  ctx.save();
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(dr.x, dr.y, dr.w, dr.h, 9);
+  else ctx.rect(dr.x, dr.y, dr.w, dr.h);
+  const diffHot = G.hover.kind === 'diff';
+  ctx.fillStyle = diffHot ? 'rgba(44,34,20,0.85)' : 'rgba(28,22,16,0.72)';
+  ctx.fill();
+  ctx.strokeStyle = diffHot ? 'rgba(244,208,63,0.8)' : 'rgba(200,170,120,0.35)';
+  ctx.lineWidth = diffHot ? 2.5 : 1.5;
+  ctx.stroke();
+  ctx.textAlign = 'center';
+  ctx.fillStyle = DIFF_KEY === 'hard' ? '#e8452f' : (DIFF_KEY === 'easy' ? '#7fd8a8' : '#f4d03f');
+  ctx.font = 'bold 17px ' + UI_SANS;
+  ctx.fillText('难度 · ' + diffDef().label, dr.x + dr.w / 2, dr.y + 19);
+  ctx.font = '12px ' + UI_SANS;
+  ctx.fillStyle = 'rgba(200,186,158,0.62)';
+  ctx.fillText((IS_TOUCH ? '点击切换' : '↑↓ 切换') + '　' + diffDef().desc, dr.x + dr.w / 2, dr.y + 34);
   ctx.restore();
 
   // character ring, Isaac style: the picked dodo stands front and center,
@@ -47,6 +68,13 @@ function renderMenu() {
       ctx.lineWidth = 3.5;
       ctx.beginPath(); ctx.ellipse(0, 30, 55, 17, 0, 0, TAU); ctx.stroke();
     }
+    // the ring slots are click targets too — a quiet ring under the pointer says
+    // so without competing with the gold pulse on the selected one
+    if (G.hover.kind === 'char' && G.hover.idx === i && !selected) {
+      ctx.strokeStyle = 'rgba(240,230,210,0.4)';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.ellipse(0, 30, 55, 17, 0, 0, TAU); ctx.stroke();
+    }
     const prev = makePlayer(c.id).appearance;
     drawDodo(ctx, 0, 0, {
       walk: G.menuAnim * 11, moving: selected, aimX: 0, aimY: 0.3,
@@ -64,10 +92,10 @@ function renderMenu() {
   const selLocked = charLocked(sel);
   ctx.save();
   ctx.textAlign = 'center';
-  ctx.font = 'bold 19px Georgia';
+  ctx.font = 'bold 19px ' + UI_SERIF;
   ctx.fillStyle = selLocked ? 'rgba(200,186,158,0.8)' : '#f4d03f';
   ctx.fillText(selLocked ? '???' : sel.name, W / 2, 418);
-  ctx.font = '14px Trebuchet MS';
+  ctx.font = '14px ' + UI_SANS;
   if (selLocked) {
     ctx.fillStyle = G.menuDeny > 0 ? '#e8452f' : 'rgba(200,186,158,0.6)';
     ctx.fillText('未解锁　·　按 I 查看解锁条件', W / 2, 440);
@@ -79,10 +107,10 @@ function renderMenu() {
 
   ctx.save();
   ctx.textAlign = 'center';
-  ctx.font = 'bold 22px Georgia';
+  ctx.font = 'bold 22px ' + UI_SERIF;
   ctx.fillStyle = Math.sin(G.menuAnim * 5) > -0.2 ? '#efe6d2' : 'rgba(239,230,210,0.25)';
   ctx.fillText('← → 选择角色　·　按 Enter 或 点击屏幕 开始', W / 2, 466);
-  ctx.font = '15px Trebuchet MS';
+  ctx.font = '15px ' + UI_SANS;
   ctx.fillStyle = 'rgba(220,205,180,0.65)';
   ctx.fillText(IS_TOUCH
     ? '左摇杆 移动　四向键 发射眼泪　炸弹 / 道具 悬浮按钮　左上角 暂停 / 图鉴　点小地图看全图'
@@ -90,13 +118,15 @@ function renderMenu() {
   ctx.fillText('清空房间开门前进 · 打倒每层 Boss · 炸开秘密房 · 碰撞获取道具变强'
     + (G.pendingSeedStr ? '　·　种子 ' + G.pendingSeedStr : '　·　S 输入种子'), W / 2, 514);
   // goals live in the codex now; the menu only counts them
+  // goals live in the codex now; the menu only counts them — and the line is a
+  // click target, so it answers the pointer like one
   const doneN = UNLOCK_DEFS.filter(u => metaHas(u.id)).length;
-  ctx.font = '13px Trebuchet MS';
-  ctx.fillStyle = 'rgba(180,166,140,0.55)';
+  ctx.font = '13px ' + UI_SANS;
+  ctx.fillStyle = G.hover.kind === 'codex' ? 'rgba(232,220,192,0.95)' : 'rgba(180,166,140,0.55)';
   ctx.fillText((IS_TOUCH ? '点这里打开解锁图鉴' : '按 I 或点这里打开解锁图鉴') + '　·　已解锁 ' + doneN + ' / ' + UNLOCK_DEFS.length, W / 2, 540);
   ctx.restore();
 
-  if (G.unlockPanel) renderUnlockPanel();
+  // the codex overlay is drawn by render() instead, above the grain pass
 }
 
 function fmtTime(sec) {
@@ -104,17 +134,34 @@ function fmtTime(sec) {
   return m + ':' + String(s).padStart(2, '0');
 }
 
+// Entrance timing for the end-of-run sheet, counted in 1/60 steps like the unlock
+// card. It is ticked from the main loop (not only from the drawing call), because
+// the reset has to happen while the game is *out* of the end state: with the call
+// sitting inside renderStatsPaper alone, the "left the screen" branch was
+// unreachable and the second death of a session skipped its animation entirely.
+let _endRef = null, _endAge = 0;
+function endAnimK() {
+  if (G.state !== 'dead' && G.state !== 'win') { _endRef = null; _endAge = 0; return 1; }
+  if (_endRef !== G.state) { _endRef = G.state; _endAge = 0; }
+  _endAge += 1 / 60;
+  return clamp(_endAge / 0.4, 0, 1);
+}
 // End-of-run screens: a page torn from a kid's sketchbook — wobbly crayon
 // borders, every glyph hand-jittered (seeds are fixed so nothing shimmers).
 function renderStatsPaper(dead) {
   // 讨伐 dumate 成功的一局也走这里：账按通关记，纸却是死亡样式——
   // 它认下了你的胜利，但没放你走（见 game-flow.js 的斩杀演出）
   const executed = !dead && G.dumateWin;
+  // The sheet used to be there the instant the run ended. Now it falls in: the
+  // scrim fades, the paper drops 26px and unwinds its tilt. Same crayon page,
+  // but the moment reads as an event instead of a screen swap.
+  const inK = endAnimK();
+  const ease = 1 - Math.pow(1 - inK, 3);
   ctx.save();
-  ctx.fillStyle = 'rgba(0,0,0,0.74)';
+  ctx.fillStyle = 'rgba(0,0,0,' + (0.74 * ease).toFixed(3) + ')';
   ctx.fillRect(0, 0, W, H);
-  ctx.translate(W / 2, H / 2);
-  ctx.rotate(dead ? -0.035 : 0.025);
+  ctx.translate(W / 2, H / 2 + (1 - ease) * 26);
+  ctx.rotate((dead ? -0.035 : 0.025) * ease);
   const pw = 440, ph = 430;
   // paper with a slightly torn edge
   const rng = mulberry32(dead ? 4210 : 9182);
@@ -199,6 +246,8 @@ function renderStatsPaper(dead) {
   }
   ctx.restore();
 
+  // 本局难度：一行小字压在涂鸦下面（纸条上那段空白刚好够，不挤统计）
+  drawCrayonText(ctx, '难度 · ' + diffDef().label, 0, -4, 16, '#6b6152', 512, { spacing: 1 });
   // stats in wobbly handwriting
   drawCrayonText(ctx, '打倒了 ' + G.stats.kills + ' 只怪物', 0, 26, 23, '#4a4136', 511, { spacing: 2 });
   drawCrayonText(ctx, '捡到了 ' + G.stats.items + ' 个宝贝', 0, 62, 23, '#4a4136', 622, { spacing: 2 });
@@ -237,12 +286,46 @@ function renderWin() { renderStatsPaper(false); }
 // ---------------- pause overlay ----------------
 // Clickable region for the changelog / manual link at the bottom of the overlay.
 const PAUSE_DOC_RECT = { x: W / 2 - 200, y: H - 36, w: 400, h: 32 };
+// Canvas-space test, shared by the click handler and the hover pass. It also
+// fixes a quiet bug: the old version mapped the pointer with a plain rect scale,
+// which is wrong in fake-landscape mode where the canvas is rotated 90°.
+function pauseDocLinkHitXY(cx, cy) {
+  const r = PAUSE_DOC_RECT;
+  return cx >= r.x && cx <= r.x + r.w && cy >= r.y && cy <= r.y + r.h;
+}
 function pauseDocLinkHit(e) {
-  const r = canvas.getBoundingClientRect();
-  const cx = (e.clientX - r.left) * (W / r.width);
-  const cy = (e.clientY - r.top) * (H / r.height);
-  return cx >= PAUSE_DOC_RECT.x && cx <= PAUSE_DOC_RECT.x + PAUSE_DOC_RECT.w &&
-         cy >= PAUSE_DOC_RECT.y && cy <= PAUSE_DOC_RECT.y + PAUSE_DOC_RECT.h;
+  const pos = canvasXY(e);
+  return pauseDocLinkHitXY(pos.x, pos.y);
+}
+
+// Taken-item grid geometry, shared by the drawing pass and pauseItemHit. The
+// icons shrink to fit any count, so the hit boxes have to be derived from the
+// same numbers rather than hard-coded.
+function pauseItemGrid() {
+  const taken = G.player ? G.player.itemsTaken : [];
+  const rowsN = taken.length > 29 ? 2 : 1;
+  const cols = Math.ceil(taken.length / rowsN);
+  const gap = Math.min(30, (W - 100) / Math.max(cols - 1, 1));
+  return { taken, rowsN, cols, gap, scale: clamp(gap / 38, 0.42, 0.78),
+    gridY: rowsN === 2 ? 452 : 466 };
+}
+function pauseItemHit(cx, cy) {
+  if (!G.paused || G.mapOverlay || G.unlockPanel || !G.player) return null;
+  const g = pauseItemGrid();
+  if (!g.taken.length) return null;
+  const r = 20 * g.scale + 4;
+  for (let i = 0; i < g.taken.length; i++) {
+    const row = Math.floor(i / g.cols), col = i % g.cols;
+    const n = Math.min(g.cols, g.taken.length - row * g.cols);
+    const startX = W / 2 - ((n - 1) * g.gap) / 2;
+    const x = startX + col * g.gap, y = g.gridY + row * 34;
+    if (Math.abs(cx - x) > r || Math.abs(cy - y) > r) continue;
+    const def = ITEM_BY_ID[g.taken[i]];
+    // i + x/y come along so the caller can highlight this exact slot (ids can
+    // repeat) and anchor the tooltip on the icon that was actually hovered
+    if (def) return { i, x, y, id: g.taken[i], def };
+  }
+  return null;
 }
 
 function lbTimeStr(ms) {
@@ -253,7 +336,7 @@ function lbTimeStr(ms) {
 
 // Right-hand pause panel: fastest-clear leaderboard from platform dynamic data.
 function renderLeaderboardPanel(rx, py, rw) {
-  ctx.font = '14px Trebuchet MS';
+  ctx.font = '14px ' + UI_SANS;
   ctx.textAlign = 'center';
   const hint = msg => {
     ctx.fillStyle = 'rgba(200,186,158,0.6)';
@@ -266,7 +349,7 @@ function renderLeaderboardPanel(rx, py, rw) {
 
   const meName = LB.me && LB.me.userName;
   const rowH = 27;
-  ctx.font = '15px Trebuchet MS';
+  ctx.font = '15px ' + UI_SANS;
   const drawRow = (rank, row, y) => {
     const self = row.player === meName;
     ctx.fillStyle = self ? '#f4c95d' : (rank === 1 ? '#e8b64a' : 'rgba(216,204,176,0.85)');
@@ -287,30 +370,52 @@ function renderLeaderboardPanel(rx, py, rw) {
 
 function renderPause() {
   const p = G.player;
+  // The overlay used to appear in a single frame. It eases in over 0.15s and the
+  // sheet drifts up 12px, so pausing reads as the run stopping rather than the
+  // screen being swapped out from under the player. pauseAnim is reset in
+  // setPaused, so every pause animates.
+  const inK = clamp(G.pauseAnim / 0.15, 0, 1);
   ctx.save();
-  ctx.fillStyle = 'rgba(8,6,4,0.68)';
+  // Only the world behind the sheet is still brightening down: the sheet itself
+  // slides up at full opacity, so the readout is legible on the very first frame
+  // (a whole-overlay fade made the panel a ghost for its first ~9 frames).
+  ctx.fillStyle = 'rgba(8,6,4,' + (0.68 * inK).toFixed(3) + ')';
   ctx.fillRect(0, 0, W, H);
-
+  ctx.translate(0, (1 - inK) * 12);
   ctx.textAlign = 'center';
-  ctx.font = 'bold 58px Georgia';
+  ctx.font = 'bold 58px ' + UI_SERIF;
   ctx.lineWidth = 9;
   ctx.strokeStyle = '#0f0a07';
   ctx.strokeText('暂 停', W / 2, 132);
   ctx.fillStyle = '#e8dcc0';
   ctx.fillText('暂 停', W / 2, 132);
 
-  // attribute sheet (left); leaderboard (right) only when the platform SDK is present
+  // attribute sheet (left); leaderboard (right) only when the platform SDK is present.
+  // Each attribute carries a bar whose middle tick is *this character's* starting
+  // value, because a bare "3.5 攻击力" never answered the only question a player
+  // has — is that more or less than I began with? makePlayer is pure, so asking
+  // it for the baseline here is safe.
+  const base = makePlayer(p.charId);
   const rows = [
     ['生命', G.floorCurse === 'unknown' ? '???'
       : Math.ceil(p.hp / 2) + ' / ' + Math.ceil(p.maxHp / 2) + ' 心'
-      + (p.soulHp > 0 ? '　+ ' + (p.soulHp / 2) + ' 魂心' : '')],
-    ['攻击力', p.damage.toFixed(1)],
-    ['射速', (1 / p.fireDelay).toFixed(2) + ' 发/秒'],
-    ['弹速', Math.round(p.shotSpeed)],
-    ['射程', Math.round(p.range)],
-    ['移速', Math.round(p.moveSpeed)],
+      + (p.soulHp > 0 ? '　+ ' + (p.soulHp / 2) + ' 魂心' : ''), null, null],
+    ['攻击力', p.damage.toFixed(1), p.damage, base.damage],
+    ['射速', (1 / p.fireDelay).toFixed(2) + ' 发/秒', 1 / p.fireDelay, 1 / base.fireDelay],
+    ['弹速', String(Math.round(p.shotSpeed)), p.shotSpeed, base.shotSpeed],
+    ['射程', String(Math.round(p.range)), p.range, base.range],
+    ['移速', String(Math.round(p.moveSpeed)), p.moveSpeed, base.moveSpeed],
   ];
-  const rowH = 30, boxY = 152, boxH = rows.length * rowH + 96;
+  // Character meters (怒气 / 魂火 / 复活) only ever existed in the HUD during play,
+  // so pausing to take stock was the one moment they were invisible. They share a
+  // single extra row so the panel never grows into the item grid below it.
+  const meters = [];
+  if (p.charId === 'rage') meters.push('怒气 ' + (rageBerserk(p) ? '暴走中' : Math.round((p.rageMeter || 0) * 100) + '%'));
+  if (p.charId === 'dark') meters.push('魂火 ' + ((p.soulSparks || 0) % 3) + '/3');
+  if (p.extraLives > 0) meters.push('复活 ' + p.extraLives + ' 次');
+  if (meters.length) rows.push(['状态', meters.join('　'), null, null]);
+  const rowH = rows.length > 6 ? 27 : 30;
+  const boxY = 152, boxH = rows.length * rowH + 96;
   const showBoard = LB.sdkPresent;
   const lw = 432, lx = showBoard ? 44 : (W - lw) / 2;
   const px = lx + 26, py = boxY + 34;
@@ -321,16 +426,42 @@ function renderPause() {
   ctx.beginPath(); ctx.rect(lx, boxY, lw, boxH); ctx.fill(); ctx.stroke();
   if (showBoard) { ctx.beginPath(); ctx.rect(rx, boxY, rw, boxH); ctx.fill(); ctx.stroke(); }
 
-  ctx.font = 'bold 15px Trebuchet MS';
+  ctx.font = 'bold 15px ' + UI_SANS;
   ctx.textAlign = 'left';
   ctx.fillStyle = 'rgba(232,220,192,0.55)';
   const curseTag = G.floorCurse ? '　·　' + FLOOR_CURSES[G.floorCurse].name : '';
   ctx.fillText(FLOOR_NAMES[G.floorNum - 1] + '　第 ' + G.floorNum + ' / ' + FLOOR_COUNT + ' 层' + curseTag, px, py - 12);
+  // 本局难度另起一行：楼层名和诅咒名都可能很长，2026-09 实测最长组合挤在同一行会到
+  // 386px，超过面板 380px 的内宽。拆开之后两行各自都有 300px+ 余量。
+  ctx.font = '13px ' + UI_SANS;
+  ctx.fillStyle = 'rgba(200,186,158,0.6)';
+  ctx.fillText('难度 ' + diffDef().label, px, py + 2);
+  // 恢复字体：下面的属性行沿用当前 canvas 字体，不还原会把整张表缩成 13px
+  ctx.font = 'bold 15px ' + UI_SANS;
   if (showBoard) ctx.fillText('最速通关榜', rx + 26, py - 12);
-  rows.forEach(([k, v], i) => {
+  rows.forEach(([k, v, cur, baseV], i) => {
     const y = py + 18 + i * rowH;
     ctx.fillStyle = 'rgba(216,204,176,0.8)';
     ctx.fillText(k, px, y);
+    // relative bar: half length = exactly the character's baseline
+    if (cur != null && baseV) {
+      const bx = px + 84, bw = 128, by = y - 3;
+      const rel = cur / baseV;
+      ctx.fillStyle = 'rgba(10,8,6,0.6)';
+      ctx.fillRect(bx, by, bw, 6);
+      ctx.fillStyle = rel > 1.02 ? '#7fd8a8' : (rel < 0.98 ? '#e8452f' : '#c9a437');
+      ctx.fillRect(bx, by, bw * clamp(rel / 2, 0, 1), 6);
+      ctx.fillStyle = 'rgba(240,230,210,0.75)';
+      ctx.fillRect(bx + bw / 2 - 1, by - 3, 2, 12);   // the baseline tick
+      if (Math.abs(rel - 1) > 0.02) {
+        ctx.font = 'bold 11px ' + UI_SANS;
+        ctx.textAlign = 'right';
+        ctx.fillStyle = rel > 1 ? 'rgba(127,216,168,0.9)' : 'rgba(232,69,47,0.9)';
+        ctx.fillText((rel > 1 ? '+' : '') + Math.round((rel - 1) * 100) + '%', px + 296, y);
+        ctx.font = 'bold 15px ' + UI_SANS;
+        ctx.textAlign = 'left';
+      }
+    }
     ctx.textAlign = 'right';
     ctx.fillStyle = '#efe6d2';
     ctx.fillText(v, px + 380, y);
@@ -341,51 +472,60 @@ function renderPause() {
   });
   // run summary sits at the bottom of the left panel
   ctx.textAlign = 'center';
-  ctx.font = '14px Trebuchet MS';
+  ctx.font = '14px ' + UI_SANS;
   ctx.fillStyle = 'rgba(200,186,158,0.75)';
   ctx.fillText('道具 ' + G.stats.items + ' 件　击杀 ' + G.stats.kills + '　金币 ' + p.coins +
     '　时间 ' + fmtTime(G.stats.time) + '　种子 ' + G.seedStr, lx + lw / 2, py + 36 + rows.length * rowH);
 
   if (showBoard) renderLeaderboardPanel(rx, py, rw);
 
-  // taken items: every icon, no names — wrapped and shrunk so any count fits
-  const taken = p.itemsTaken;
-  if (taken.length) {
-    const rowsN = taken.length > 29 ? 2 : 1;
-    const cols = Math.ceil(taken.length / rowsN);
-    const gap = Math.min(30, (W - 100) / Math.max(cols - 1, 1));
-    const scale = clamp(gap / 38, 0.42, 0.78);
-    const gridY = rowsN === 2 ? 452 : 466;
-    for (let r = 0; r < rowsN; r++) {
-      const rowItems = taken.slice(r * cols, (r + 1) * cols);
-      const startX = W / 2 - ((rowItems.length - 1) * gap) / 2;
+  // Taken items: every icon, no names — wrapped and shrunk so any count fits.
+  // Hovering one names it. This panel is the only place a build can be inspected,
+  // and 89 hand-drawn icons with subtle differences are not readable off a grid
+  // scaled down to 0.42×. Geometry comes from pauseItemGrid so the drawing pass
+  // and the hit test can never drift apart.
+  const g = pauseItemGrid();
+  const hot = pauseItemHit(G.hoverPos ? G.hoverPos.x : -1, G.hoverPos ? G.hoverPos.y : -1);
+  if (g.taken.length) {
+    for (let r = 0; r < g.rowsN; r++) {
+      const rowItems = g.taken.slice(r * g.cols, (r + 1) * g.cols);
+      const startX = W / 2 - ((rowItems.length - 1) * g.gap) / 2;
       rowItems.forEach((id, c) => {
         const def = ITEM_BY_ID[id];
         if (!def) return;
+        const x = startX + c * g.gap, y = g.gridY + r * 34;
+        const box = 17 * g.scale + 3;
+        if (hot && hot.i === r * g.cols + c) {
+          ctx.strokeStyle = 'rgba(244,208,63,0.85)';
+          ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.rect(x - box, y - box, box * 2, box * 2); ctx.stroke();
+        }
         ctx.save();
-        ctx.translate(startX + c * gap, gridY + r * 34);
-        ctx.scale(scale, scale);
+        ctx.translate(x, y);
+        ctx.scale(g.scale, g.scale);
         drawItemIcon(ctx, 0, 0, def);
         ctx.restore();
       });
     }
+    if (hot) drawItemTooltip(ctx, { name: hot.def.name, desc: hot.def.desc, x: hot.x, y: hot.y }, p.coins);
   }
 
   ctx.textAlign = 'center';
-  ctx.font = 'bold 19px Georgia';
+  ctx.font = 'bold 19px ' + UI_SERIF;
   ctx.fillStyle = Math.sin(G.pauseAnim * 4) > -0.3 ? '#efe6d2' : 'rgba(239,230,210,0.3)';
   ctx.fillText(IS_TOUCH
     ? '点击屏幕继续　·　切换窗口会自动暂停'
     : '按 P 继续　·　按 I 看解锁图鉴　·　切换窗口会自动暂停', W / 2, H - 46);
 
   // changelog / manual doc link (the one clickable spot on this overlay)
+  const docHot = G.hover.kind === 'doc';
   const link = '更新日志与玩法说明 · 点这里查看';
-  ctx.font = '15px Trebuchet MS';
-  ctx.fillStyle = '#8fb8dd';
+  ctx.font = '15px ' + UI_SANS;
+  ctx.fillStyle = docHot ? '#cfe6ff' : '#8fb8dd';
   ctx.fillText(link, W / 2, H - 16);
   const tw = ctx.measureText(link).width;
-  ctx.strokeStyle = 'rgba(143,184,221,0.55)';
-  ctx.lineWidth = 1;
+  ctx.strokeStyle = docHot ? 'rgba(207,230,255,0.95)' : 'rgba(143,184,221,0.55)';
+  ctx.lineWidth = docHot ? 2 : 1;
   ctx.beginPath(); ctx.moveTo(W / 2 - tw / 2, H - 12); ctx.lineTo(W / 2 + tw / 2, H - 12); ctx.stroke();
   ctx.restore();
 }
@@ -423,32 +563,33 @@ function renderDumateOffer() {
   drawDumateBody(ctx, 70, t, {});
   ctx.restore();
   ctx.textAlign = 'center';
-  ctx.font = 'bold 40px Georgia';
+  ctx.font = 'bold 40px ' + UI_SERIF;
   ctx.lineWidth = 8;
   ctx.strokeStyle = '#05050c';
   ctx.strokeText('dumate', W / 2, 306);
   ctx.fillStyle = '#aab6ff';
   ctx.fillText('dumate', W / 2, 306);
-  ctx.font = '16px Trebuchet MS';
+  ctx.font = '16px ' + UI_SANS;
   ctx.fillStyle = 'rgba(216,214,236,0.9)';
   ctx.fillText('每一位 dodo 都走出过地牢，这一次，出口前浮着一道蓝色的影子', W / 2, 338);
   ctx.fillText('它客气地告知：这座地牢连同里面的一切，如今都归它了，包括你', W / 2, 361);
   const ready = performance.now() - off.openedAt > 900;
   DUMATE_OFFER_BTNS.forEach((b, i) => {
-    const sel = off.sel === i;
+    // the choice responds to the pointer the same way the keyboard selection does
+    const sel = off.sel === i || (G.hover.kind === 'offer' && G.hover.idx === i);
     ctx.fillStyle = sel ? 'rgba(38,40,74,0.92)' : 'rgba(14,14,24,0.85)';
     ctx.strokeStyle = sel ? (i === 0 ? '#8f9df5' : '#f4d03f') : '#33334a';
     ctx.lineWidth = sel ? 3.5 : 2;
     ctx.beginPath(); ctx.rect(b.x, b.y, b.w, b.h); ctx.fill(); ctx.stroke();
-    ctx.font = 'bold 24px Georgia';
+    ctx.font = 'bold 24px ' + UI_SERIF;
     ctx.fillStyle = sel ? '#f3ecd8' : 'rgba(200,196,214,0.75)';
     ctx.fillText(b.label, b.x + b.w / 2, b.y + 44);
-    ctx.font = '13px Trebuchet MS';
+    ctx.font = '13px ' + UI_SANS;
     ctx.fillStyle = sel ? 'rgba(216,214,236,0.9)' : 'rgba(160,156,178,0.7)';
     const sub = (i === 1 && !LB.sdkPresent) ? '立即通关' : b.sub;
     ctx.fillText(sub, b.x + b.w / 2, b.y + 72);
   });
-  ctx.font = 'bold 16px Georgia';
+  ctx.font = 'bold 16px ' + UI_SERIF;
   ctx.fillStyle = ready && Math.sin(t * 5) > -0.3 ? '#efe6d2' : 'rgba(239,230,210,0.35)';
   ctx.fillText(IS_TOUCH ? '点击选项做出抉择' : '← → 选择　·　Enter 确认　·　也可直接点击', W / 2, H - 40);
   ctx.restore();
@@ -537,7 +678,7 @@ function renderDumateExec() {
         ctx.save();
         ctx.globalAlpha = clamp((t - 2.1) / 0.4, 0, 1);
         ctx.textAlign = 'center';
-        ctx.font = 'bold 22px Georgia';
+        ctx.font = 'bold 22px ' + UI_SERIF;
         ctx.fillStyle = '#aab6ff';
         ctx.fillText('它认下了你的胜利，却没打算放你走', W / 2, H - 92);
         ctx.restore();
@@ -565,6 +706,18 @@ function loop(t) {
     updateParticles(G, dt);
     G.shake = Math.max(0, G.shake - dt * 40);
   }
+  // screen damage bloom decays on wall-clock time so it also fades on the death
+  // screen, where updatePlay no longer runs
+  G.hurtT = Math.max(0, (G.hurtT || 0) - dt);
+  // hover is re-derived every frame: hit regions appear and disappear with the
+  // game state (pause panel, dumate choice) while the pointer sits still
+  refreshHover();
+  // ticked here so leaving the end screen (which happens outside renderStatsPaper)
+  // resets the sheet's entrance timer — see endAnimK
+  endAnimK();
+  syncTouchButtons();
+  syncAnnounce();
+  syncMusic();
   render();
   requestAnimationFrame(loop);
 }

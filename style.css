@@ -44,6 +44,8 @@ canvas {
   background:rgba(16,11,7,.36);
   border:2px solid rgba(232,220,192,.3);
   box-shadow:0 3px 10px rgba(0,0,0,.45), inset 0 0 12px rgba(0,0,0,.3);
+  /* 按下态原来是硬切；给一层短过渡，手指下去能看到控件「回应」了一下 */
+  transition:background .12s ease, border-color .12s ease, color .12s ease, opacity .18s ease;
 }
 #stick-base {
   position:absolute;
@@ -114,10 +116,11 @@ canvas {
   position:absolute;
   left:calc(10px + env(safe-area-inset-left, 0px));
   top:calc(8px + env(safe-area-inset-top, 0px));
-  display:flex; gap:8px;
+  display:flex; gap:12px;
   pointer-events:auto;
 }
 .corner-btn {
+  position:relative;
   width:var(--corner); height:var(--corner);
   display:flex; align-items:center; justify-content:center;
   border-radius:7px;
@@ -127,7 +130,14 @@ canvas {
   color:#e8dcc0;
   -webkit-user-select:none; user-select:none;
   touch-action:none;
+  transition:background .12s ease, border-color .12s ease, color .12s ease;
 }
+/* 命中区比视觉大一圈：小屏上角落按钮只有 ~35px，低于 44px 的可点下限。
+   伪元素不可见，只负责把可点范围补足。注意它定位的包含块是按钮的 padding box
+   （border-box 下比视觉框窄 2×border=4px），所以 inset:-6px 实测得到 43px 的
+   可点区域；#top-pad 的 gap 同步加到 12px，两个按钮扩出来的命中区才不会互相咬住
+   （视觉间距 12px − 两侧各外扩 4px = 中间留 4px 死区） */
+.corner-btn::after { content:''; position:absolute; inset:-6px; }
 .corner-btn:active { background:#2b1e12; border-color:#f4d03f; color:#f4d03f; }
 .corner-btn svg { width:60%; height:60%; fill:currentColor; }
 /* 暂停时图标换成继续箭头 */
@@ -163,4 +173,39 @@ body.rot90 #touch-ui {
   height:100vw;
   --ctl:clamp(30px, 12vw, 56px);
   --corner:clamp(30px, 9vw, 42px);
+}
+
+/* 按下也没用的时候：不在对局中 / 炸弹为 0 / 主动道具没充能 —— 灰掉，
+   别让玩家按完才从 toast 里知道（状态由 syncTouchButtons 同步） */
+.action-btn.off {
+  background:rgba(16,11,7,.2);
+  border-color:rgba(232,220,192,.14);
+  color:rgba(236,224,196,.32);
+}
+.action-btn.off:active {
+  background:rgba(16,11,7,.2);
+  border-color:rgba(232,220,192,.14);
+}
+
+/* 触控 UI 里的真按钮在桌面上是 display:none，但触屏笔记本 + 外接键盘、
+   以及读屏的虚拟光标仍然会聚焦它们：给一个看得见的焦点环 */
+.corner-btn:focus-visible, .fire-btn:focus-visible, .action-btn:focus-visible {
+  outline:2px solid #f4d03f;
+  outline-offset:2px;
+}
+
+/* 假横屏下「视觉上的左上角」不是物理左上角：本地 x 轴朝屏幕下方、本地 y 轴
+   朝屏幕左侧，所以 left 吃到的是物理顶部的刘海，top 吃到的是物理右侧。
+   原来的 left/top 各吃自己的 inset，在刘海屏上按钮会被挖孔压住。 */
+body.rot90 #top-pad {
+  left:calc(10px + env(safe-area-inset-top, 0px));
+  top:calc(8px + env(safe-area-inset-right, 0px));
+}
+
+/* 读屏专用：canvas 里的 HUD 对辅助技术完全不可见，状态播报走这个隐藏节点 */
+.sr-only {
+  position:absolute; width:1px; height:1px;
+  margin:-1px; padding:0; border:0;
+  overflow:hidden; white-space:nowrap;
+  clip:rect(0 0 0 0); clip-path:inset(50%);
 }

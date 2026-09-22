@@ -6,11 +6,10 @@
 //   attacks– 2..4 entries from BOSS_ATTACKS below
 // Isaac reference: bosses telegraph, then commit; below 50% hp they enrage
 // (shorter gaps, denser bullets), exactly like Monstro's second phase.
-// HP: floor 1 stays a gentle tutorial fight; floors 2+ climb an exponential
-// curve (~×1.32 per floor from a much higher base). On top of that, makeBoss
-// caps hp at ~60s of the player's estimated standing-still dps: a fight can
-// never outlast a minute of sustained fire, and there is no minimum — a
-// stacked build is free to melt a boss in seconds (10s 内速杀也允许).
+// HP: a hand-written table, not a formula — floor 1 stays a gentle tutorial
+// fight, the rest climb from 900 to 20300 with the final boss at 40000. On top
+// of the table makeBoss puts hp inside a two-sided window around the player's
+// estimated standing-still dps: at most ~55s of sustained fire, at least 12s.
 // Touch damage steps up by chapter, so the late game actually bites.
 // Signature rule: every attack in BOSS_ATTACKS belongs to exactly ONE boss --
 // no two bosses share a move, so each fight teaches a fresh dodge.
@@ -111,44 +110,80 @@ const DUMATE_DEF = {
   attacks: ['forkStorm', 'byteRain', 'gravityWell', 'firewallGrid', 'mirrorPhantoms', 'overwrite'],
 };
 
-// Rough per-second output of the current build, assuming shots land.
-// Used to size boss hp so the fight can't collapse in a few seconds.
+// Rough per-second output of the current build, assuming shots land. The boss
+// hp window is sized from this, so anything the player can output has to be in
+// here — the aura / orbit / splash terms below were missing once and let a
+// Godhead build melt bosses far faster than the window intended.
 function estimatePlayerDPS(p) {
   let perShot, cycle;
   if (p.laser) {
     const mul = p.multishot > 1 ? 0.72 * p.multishot : 1;
     perShot = p.damage * 3.6 * mul;
-    cycle = p.fireDelay * 1.8 + LASER_CHARGE_TIME;   // charge time gates every beam
+    cycle = p.fireDelay * 1.8 + laserChargeTime(p);   // the real charge gate, not the base constant
   } else {
     perShot = p.damage * p.multishot;
     cycle = p.fireDelay;
   }
   let dps = perShot / cycle;
+  // 生气 dodo: the meter scales damage and fire rate together, and a boss fight
+  // keeps it pinned at berserk — hits, kills and pain all feed it, and it only
+  // drains after 2s out of combat. Size the window for that ceiling, not for the
+  // meter the player happened to walk in with, or a berserk build still melts a
+  // boss sized for a fifth of its output. No-op for every other character.
+  if (p.charId === 'rage') dps *= RAGE_BERSERK_DMG / RAGE_BERSERK_FIRE;
   if (p.crit > 0) dps *= 1 + p.crit * (p.critMul - 1);
   if (p.familiars > 0) dps += p.familiars * Math.max(2, p.damage * 0.5) / 0.7;
   if (p.poison > 0) dps += p.poison;
+  // orbiting tears: damage*0.55 per orbit on a 0.25s cooldown, but they orbit
+  // instead of chasing, so count roughly half the swings as landed hits
+  if (p.orbitals > 0) dps += p.orbitals * (p.damage * 0.55) / 0.5;
+  // Godhead-style aura: a ticking damage source the estimator used to ignore
+  if (p.tearAura > 0) dps += p.tearAura / 0.22;
+  // splash and split tears damage more than one body per shot
+  // splash and split tears damage more than one body per shot. A hit + its own
+  // landing explosion is 1 + 0.7 = 1.7× on the primary target (explodeAt deals
+  // damage*0.7), and the old 1.15 here let explosion builds melt bosses.
+  if (p.explosive > 0) dps *= 1.7;
+  if (p.split > 0) dps *= 1 + p.split * 0.25;
   return dps;
 }
 
-// 用户设定：Boss 血量不再按玩家 DPS 抬下限（旧 30s 站桩让 boss 都太肉），
-// 改为按玩家站桩 60s 输出封顶、不设下限——数值堆高的 build 允许 10s 内速杀，
-// 数值低的也不会被一场 Boss 战磨掉一分钟以上。最终 Boss 同规则。
-const BOSS_CAP_FIGHT_SECONDS = 60;
+// Boss hp is a two-sided window around the player's standing-still output:
+// never more than BOSS_CAP_FIGHT_SECONDS of sustained fire (a fight can't turn
+// into a war of attrition), and never less than BOSS_MIN_FIGHT_SECONDS — but the
+// floor is capped at BOSS_MAX_INFLATE × the table hp, and that cap is the whole
+// point: a proportional floor with no ceiling is an absolute rubber band, so
+// every build strong enough to reach it would get the exact same fight length
+// and a build twice as strong would feel identical. With the cap, reaching the
+// floor is what a good build earns (BOSS_MIN_FIGHT_SECONDS of work), and
+// *outgrowing* the cap is what actually buys a speed kill — the fight time keeps
+// falling as the build gets stronger. Floor 1 stays a tutorial fight.
+const BOSS_CAP_FIGHT_SECONDS = 55;
+const BOSS_MIN_FIGHT_SECONDS = 8;
+const BOSS_MAX_INFLATE = 1.5;
 
 function makeBoss(def, x, y) {
-  // floor 1 keeps its tutorial-sized hp; every later boss (final included)
-  // is only ever capped at ~60s of the player's standing-still output —
-  // never inflated to enforce a minimum fight length
   let hp = def.hp;
-  if (G.floorNum > 1) {
-    hp = Math.min(hp, Math.max(1, Math.round(estimatePlayerDPS(G.player) * BOSS_CAP_FIGHT_SECONDS)));
-  }
-  // the risky route grows a meaner boss
+  let win = null;   // recorded so tests (and tuning) can see what the window did
+  // the risky route grows a meaner boss; applied before the window so the ×1.2
+  // still reads as "meaner than the safe route" for the same player
   if (typeof G !== 'undefined' && G.floor && G.floor.hard) hp = Math.round(hp * 1.2);
+  if (G.floorNum > 1) {
+    // the preset's bossHp knob. Floor 1 keeps its tutorial 300 on every preset,
+    // so a first run always meets the same opening fight
+    hp = Math.round(hp * diffMul('bossHp'));
+    const dps = estimatePlayerDPS(G.player);
+    const lo = Math.max(1, Math.min(
+      Math.round(dps * BOSS_MIN_FIGHT_SECONDS * diffMul('bossMin')),
+      Math.round(hp * BOSS_MAX_INFLATE)));
+    const hi = Math.max(lo, Math.round(dps * BOSS_CAP_FIGHT_SECONDS * diffMul('bossCap')));
+    win = { dps, lo, hi, table: hp };
+    hp = clamp(hp, lo, hi);
+  }
   return {
     type: 'boss', isBoss: true, def, name: def.name,
     x, y, vx: 0, vy: 0, z: 0, vz: 0,
-    r: def.r, hp, maxHpRef: hp,
+    r: def.r, hp, maxHpRef: hp, hpWindow: win,
     touchDamage: def.touchDamage || 2,
     anim: rand(10), flash: 0, dead: false, knockX: 0, knockY: 0,
     spawnT: 0.9, spawnMax: 0.9, squash: 0, mouthOpen: 0, fade: 1,
@@ -159,9 +194,18 @@ function makeBoss(def, x, y) {
 
 // ---------------- top level state machine ----------------
 function updateBossAI(G, e, dt) {
+  // A boss killed this frame is still in G.enemies (the filter runs at the end of
+  // updateEnemies), so without this it would reach the enrage check below with
+  // hp <= 0 and roar on its own death frame.
+  if (e.dead) return;
   e.squash = Math.max(0, e.squash - dt * 2.5);
   e.mouthOpen = Math.max(0, e.mouthOpen - dt * 2);
-  e.rage = e.hp <= e.maxHpRef * 0.5;
+  // enrage transition used to be completely silent: the bar changed colour and the
+  // name grew 【狂暴】 with no announcement. Now it snarls. hp > 0 because a
+  // one-shot kill from above half health lands on 0, which is a death, not a rage.
+  const wasRage = e.rage;
+  e.rage = e.hp > 0 && e.hp <= e.maxHpRef * 0.5;
+  if (e.rage && !wasRage) { SFX.roar(); G.shake = Math.max(G.shake, 9); }
 
   if (e.state === 'idle') {
     e.t -= dt;
@@ -199,7 +243,7 @@ function updateBossAI(G, e, dt) {
       e.atk = null;
       e.casts = null;
       e.primaryDone = false;
-      e.t = rand(0.7, 1.4) * (e.rage ? 0.6 : 1) * (e.def.gapMul || 1);
+      e.t = rand(0.7, 1.4) * (e.rage ? 0.6 : 1) * (e.def.gapMul || 1) * diffMul('bossGap');
     }
   }
 }
@@ -289,7 +333,7 @@ function bossShotFrom(G, x, y, a, sp, r, dmg, bounces) {
   // dumate 战期间的所有弹幕都是它打出的：标记 du，渲染时走本体蓝紫配色
   const du = !!(G.room && G.room.bossDef && G.room.bossDef.dumate);
   G.eshots.push({
-    x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+    x, y, vx: Math.cos(a) * sp * diffMul('bulletSpeed'), vy: Math.sin(a) * sp * diffMul('bulletSpeed'),
     r, dmg: (dmg || 1) + boost, bounces: bounces || 0, dead: false, du,
   });
 }

@@ -1,7 +1,7 @@
 'use strict';
 // ============ synthesized sound effects (WebAudio, no assets) ============
 const SFX = (() => {
-  let ac = null, master = null;
+  let ac = null, master = null, bed = null;
   const last = {};
 
   function unlock() {
@@ -68,9 +68,10 @@ const SFX = (() => {
       if (throttled('shoot', 40)) return;
       tone({ type: 'triangle', f0: 750 + Math.random() * 250, f1: 320, t: 0.07, vol: 0.09 });
     },
-    splash() {
+    // scale widens the burst: a tear into a body is louder than one into stone
+    splash(scale = 1) {
       if (throttled('splash', 60)) return;
-      noise({ t: 0.07, vol: 0.045, f: 2600, q: 0.8 });
+      noise({ t: 0.07, vol: 0.045 * Math.min(1.6, scale), f: 2600, q: 0.8 });
     },
     hit() {
       if (throttled('hit', 45)) return;
@@ -170,6 +171,63 @@ const SFX = (() => {
         tone({ type: 'square', f0: 300, f1: 520, t: 0.1, vol: 0.1 });
         tone({ type: 'square', f0: 520, f1: 760, t: 0.12, vol: 0.08, delay: 0.07 });
       }
+    },
+    // tear into stone / wall: a short lowpassed thud, no pitch, clearly not a hit
+    dull() {
+      if (throttled('dull', 60)) return;
+      noise({ t: 0.09, vol: 0.05, f: 520, f1: 180, q: 0.9, type: 'lowpass' });
+    },
+    // an action that cannot happen: no bombs, no charge, can't afford it. Until
+    // now these were silent — the only feedback was a toast a moment later.
+    deny() {
+      if (throttled('deny', 130)) return;
+      tone({ type: 'square', f0: 190, f1: 130, t: 0.08, vol: 0.1 });
+      tone({ type: 'square', f0: 130, f1: 95, t: 0.1, vol: 0.07, delay: 0.07 });
+    },
+    // an enemy materialising out of the floor
+    spawn() {
+      if (throttled('spawn', 90)) return;
+      noise({ t: 0.16, vol: 0.05, f: 300, f1: 120, q: 0.7, type: 'lowpass' });
+      tone({ type: 'sine', f0: 180, f1: 60, t: 0.14, vol: 0.05 });
+    },
+    // boss arriving: a rising growl. Boss rooms used to open in complete silence.
+    roar() {
+      noise({ t: 0.7, vol: 0.2, f: 120, f1: 420, q: 0.8, type: 'lowpass' });
+      tone({ type: 'sawtooth', f0: 60, f1: 150, t: 0.75, vol: 0.18 });
+      tone({ type: 'square', f0: 90, f1: 210, t: 0.5, vol: 0.07, delay: 0.06 });
+    },
+    // ---- ambient bed ----
+    // Everything else here is a one-shot, so a run had no floor-level sound at
+    // all: rooms were silent until something happened. This is a quiet two-
+    // oscillator drone whose root note walks down the chapters, opening up while
+    // a boss is alive and ducking to nothing while the game is paused. Created
+    // lazily on the first call and then only re-tuned.
+    // Returns true only when the bed was actually re-tuned: the caller uses that to
+    // decide whether to remember the request. Caching it while the AudioContext is
+    // still locked would silence the ambience until the next state change.
+    music(freq, intensity) {
+      if (!ready()) return false;
+      if (!bed) {
+        const g = ac.createGain();
+        g.gain.value = 0;
+        g.connect(master);
+        const flt = ac.createBiquadFilter();
+        flt.type = 'lowpass'; flt.frequency.value = 360; flt.Q.value = 0.7;
+        flt.connect(g);
+        const a = ac.createOscillator(); a.type = 'sine';
+        const b = ac.createOscillator(); b.type = 'triangle';
+        const bg = ac.createGain(); bg.gain.value = 0.3;
+        a.connect(flt); b.connect(bg); bg.connect(flt);
+        a.start(); b.start();
+        bed = { a, b, flt, g };
+      }
+      const t = ac.currentTime;
+      const k = Math.max(0, Math.min(1, intensity));
+      bed.g.gain.setTargetAtTime(intensity < 0 ? 0 : 0.03 + 0.028 * k, t, 1.1);
+      bed.a.frequency.setTargetAtTime(freq, t, 1.6);
+      bed.b.frequency.setTargetAtTime(freq * 1.5, t, 1.6);
+      bed.flt.frequency.setTargetAtTime(300 + 520 * k, t, 1.6);
+      return true;
     },
   };
 })();

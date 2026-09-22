@@ -10,6 +10,7 @@ const META = {
   unlocked: {},          // unlock id -> true
   charWins: {},          // char id -> true, 该角色击杀过一次 MEGA dodo
   selChar: 'dodo',       // last character picked on the menu
+  diff: 'normal',        // difficulty preset: 'easy' | 'normal' | 'hard' (js/utils.js)
 };
 
 function metaLoad() {
@@ -21,15 +22,17 @@ function metaLoad() {
     if (d && d.unlocked) Object.assign(META.unlocked, d.unlocked);
     if (d && d.charWins) Object.assign(META.charWins, d.charWins);
     if (d && typeof d.selChar === 'string') META.selChar = d.selChar;
+    if (d && DIFFICULTY_PRESETS[d.diff]) META.diff = d.diff;
   } catch (e) { /* blocked storage (incognito): play without persistence */ }
 }
 function metaSave() {
   try {
     localStorage.setItem(META_KEY, JSON.stringify(
-      { totals: META.totals, unlocked: META.unlocked, charWins: META.charWins, selChar: META.selChar }));
+      { totals: META.totals, unlocked: META.unlocked, charWins: META.charWins, selChar: META.selChar, diff: META.diff }));
   } catch (e) { /* ignore */ }
 }
 metaLoad();
+setDifficulty(META.diff);   // the saved preset drives every diffMul() below
 
 // ---------------- characters ----------------
 // Every variant reuses the dodo rig — they only re-tint the drawing and move

@@ -25,6 +25,34 @@ function randi(a, b) { return Math.floor(rand(a, b + 1)); }
 function pick(arr) { return arr[Math.floor(rng() * arr.length)]; }
 function chance(p) { return rng() < p; }
 
+// ---------------- difficulty presets ----------------
+// Three presets scale a small set of knobs. Nothing here touches the seeded
+// rng stream: every consumer feeds these numbers into arithmetic *after* the
+// rng draw that decides structure, so the same seed still builds the same
+// dungeon, room kinds, curses and item pool rolls on all three presets —
+// only the numbers differ. Consumers ask for one knob by name.
+const DIFFICULTY_PRESETS = {
+  easy:   { label: '轻松', desc: '敌人更脆更少更迟钝',
+            enemyHp: 0.85, enemyCount: 0.80, enemySpeed: 0.92, enemyDmg: 0.85,
+            bossHp: 0.85, bossCap: 0.85, bossMin: 0.85, bossGap: 1.15, bulletSpeed: 0.92 },
+  normal: { label: '标准', desc: '原始手感',
+            enemyHp: 1,    enemyCount: 1,    enemySpeed: 1,    enemyDmg: 1,
+            bossHp: 1,    bossCap: 1,    bossMin: 1,    bossGap: 1,    bulletSpeed: 1 },
+  hard:   { label: '硬核', desc: '敌人更厚更凶更快',
+            enemyHp: 1.25, enemyCount: 1.15, enemySpeed: 1.08, enemyDmg: 1.25,
+            bossHp: 1.20, bossCap: 1.15, bossMin: 1.30, bossGap: 0.88, bulletSpeed: 1.08 },
+};
+const DIFF_ORDER = ['easy', 'normal', 'hard'];
+let DIFF_KEY = 'normal';
+function setDifficulty(k) { DIFF_KEY = DIFFICULTY_PRESETS[k] ? k : 'normal'; }
+function diffDef() { return DIFFICULTY_PRESETS[DIFF_KEY]; }
+// unknown keys degrade to 1 (= no-op), so a typo can never zero the game out
+function diffMul(key) {
+  const d = DIFFICULTY_PRESETS[DIFF_KEY];
+  const v = d ? d[key] : 1;
+  return typeof v === 'number' ? v : 1;
+}
+
 // ---- run seeds (Isaac style): 8 chars of A-Z1-9 <-> 32-bit int ----
 const SEED_CHARS = 'ABCDEFGHIJKLMNPQRSTUVWXYZ123456789'; // no O/0 confusion
 function seedFromString(str) {
@@ -91,4 +119,43 @@ function segCircleHit(x, y, angle, len, cx, cy, r) {
   const dx = Math.cos(angle), dy = Math.sin(angle);
   const t = clamp((cx - x) * dx + (cy - y) * dy, 0, len);
   return dist(x + dx * t, y + dy * t, cx, cy) <= r;
+}
+
+// ---------------- UI typography ----------------
+// Two problems live here, both invisible on a laptop and obvious in the hand.
+//
+// 1. The game is authored at a fixed 960×576 and CSS-scaled to the viewport, so
+//    a font size in the source is only a *relative* size. A phone canvas is
+//    about 0.68×, which lands the 11–16px HUD labels at 7–11 CSS px — legible
+//    on a desktop, a grey smudge on a phone. UIK is raised when the canvas is
+//    scaled down (see syncUiScale in game-core.js) and every font assigned to
+//    the main context is multiplied by it (see installFontScale).
+let UIK = 1;
+function uiF(px) { return Math.round(px * UIK * 10) / 10; }
+
+// 2. Georgia and Trebuchet MS carry no CJK glyphs, so every Chinese string used
+//    to fall through to whatever the OS happened to pick — PingFang on macOS,
+//    Microsoft YaHei on Windows, Roboto/Noto on Android. The interface read as
+//    three different games on three platforms, and the serif voice of the
+//    floor banners and the pause sheet was lost entirely. Both stacks now name
+//    a CJK partner, so 中文 keeps the intended serif / slab character.
+const UI_SERIF = 'Georgia,"Songti SC","Noto Serif SC","Noto Serif CJK SC",serif';
+const UI_SANS = '"Trebuchet MS","PingFang SC","Microsoft YaHei","Noto Sans CJK SC",sans-serif';
+
+// Route every `ctx.font = '... 16px ...'` through uiF without touching the ~60
+// call sites: shadow the accessor on this one context. measureText sees the same
+// scaled font, so anything that lays itself out from measured text stays
+// consistent. Nothing in the project reads ctx.font back, so no double scaling.
+function installFontScale(g) {
+  const desc = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(g), 'font');
+  if (!desc || !desc.get || !desc.set) return;
+  Object.defineProperty(g, 'font', {
+    configurable: true,
+    get() { return desc.get.call(g); },
+    set(v) {
+      desc.set.call(g, typeof v === 'string'
+        ? v.replace(/(\d+(?:\.\d+)?)px/, (m, n) => uiF(parseFloat(n)) + 'px')
+        : v);
+    },
+  });
 }

@@ -21,6 +21,8 @@ const SUITES = [
   require('./suites/07-meta-branch.cjs'),
   require('./suites/08-endgame.cjs'),
   require('./suites/09-dumate.cjs'),
+  require('./suites/10-difficulty.cjs'),
+  require('./suites/11-ui-polish.cjs'),
 ];
 
 async function main() {

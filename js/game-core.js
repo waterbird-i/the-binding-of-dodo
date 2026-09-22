@@ -2,6 +2,8 @@
 // ============ main game ============
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
+// every font assigned to this context is routed through uiF (see utils.js)
+installFontScale(ctx);
 
 const FLOOR_COUNT = 12;
 const FLOOR_NAMES = [
@@ -33,6 +35,9 @@ const G = {
   mapOverlay: false,      // hold Tab (or tap the minimap): full floor map
   hudTop: 0,              // touch: HUD column drops below the corner buttons
   shake: 0,
+  freeze: 0,              // world hit-stop in seconds (set by killEnemy)
+  hurtT: 0,               // screen damage bloom countdown (see drawScreenDamage)
+  hover: { kind: null, idx: -1 },   // pointer over a canvas-drawn hit region
   dev: false,             // developer mode: item stepping + immunity
   floorNum: 1,
   stats: { kills: 0, items: 0, startTime: 0, time: 0 },
@@ -73,6 +78,8 @@ const keys = {};
 const fireStack = [];    // latest-pressed arrow wins
 const FIRE_DIRS = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
 const touch = { moveX: 0, moveY: 0, fire: null };
+// fraction of the stick's travel that reads as "centred" (see the touchmove handler)
+const STICK_DEAD = 0.14;
 // fake-landscape flag: a portrait viewport plays the game rotated 90° (see
 // the touch controls section); every touch coordinate then needs remapping
 let rot90 = false;
@@ -132,6 +139,10 @@ window.addEventListener('keydown', e => {
     menuSelectChar((e.code === 'ArrowLeft' || e.code === 'KeyA') ? -1 : 1);
     return;
   }
+  if (G.state === 'menu' && !G.unlockPanel && (e.code === 'ArrowUp' || e.code === 'ArrowDown')) {
+    cycleDifficulty(e.code === 'ArrowUp' ? 1 : -1);
+    return;
+  }
   if (G.state === 'menu' && e.code === 'KeyS') {
     // seed entry: same seed -> same floors, same curses, same item rolls
     const v = prompt('输入种子（任意文字都行 留空取消）\n种子局不计入排行榜与解锁');
@@ -185,6 +196,7 @@ canvas.addEventListener('pointerdown', e => {
     if (G.unlockPanel) { G.unlockPanel = false; return; }
     const pos = canvasXY(e);
     // the codex line doubles as a tap target so touch players can open it too
+    if (menuDiffHit(pos.x, pos.y)) { cycleDifficulty(1); return; }
     if (menuCodexHit(pos.x, pos.y)) { G.unlockPanel = true; SFX.item(); return; }
     const hit = menuCharHit(pos.x, pos.y);
     if (hit >= 0 && hit !== G.charIdx) {
@@ -196,6 +208,58 @@ canvas.addEventListener('pointerdown', e => {
   }
   if (G.state !== 'play') confirmScreen();
 });
+
+// ---------------- pointer hover ----------------
+// Nothing on the canvas is a DOM node, so no region can be hovered for free:
+// every clickable spot is a hand-written hit test. On a desktop that made the
+// interface look inert — the cursor never changed and nothing reacted to the
+// pointer, so the only way to find the six clickable regions was to click them
+// and see what happened. pointermove only records where the pointer is;
+// hoverRegion() re-runs the same hit tests the click handlers use, and the main
+// loop refreshes it every frame, so a region that appears later (the pause
+// panel, the dumate choice) is hoverable the moment it is drawn.
+G.hoverPos = null;
+function hoverRegion(cx, cy) {
+  const none = { kind: null, idx: -1 };
+  if (cx == null) return none;
+  if (G.state === 'menu') {
+    if (G.unlockPanel) return none;
+    if (menuDiffHit(cx, cy)) return { kind: 'diff', idx: -1 };
+    if (menuCodexHit(cx, cy)) return { kind: 'codex', idx: -1 };
+    const i = menuCharHit(cx, cy);
+    return i >= 0 ? { kind: 'char', idx: i } : none;
+  }
+  if (G.state === 'play') {
+    // paused first: the pause panel is an overlay on a 'play' state, so testing
+    // the minimap before it swallowed every panel hit test
+    if (G.paused) {
+      if (G.mapOverlay || G.unlockPanel) return none;
+      if (pauseDocLinkHitXY(cx, cy)) return { kind: 'doc', idx: -1 };
+      const it = pauseItemHit(cx, cy);
+      return it ? { kind: 'item', idx: it.i } : none;
+    }
+    if (G.floorCurse !== 'lost' && minimapHit(cx, cy)) return { kind: 'map', idx: -1 };
+    return none;
+  }
+  if (G.state === 'dumateOffer') {
+    const i = dumateOfferHit(cx, cy);
+    return i >= 0 ? { kind: 'offer', idx: i } : none;
+  }
+  return none;
+}
+function refreshHover() {
+  const pos = G.hoverPos;
+  const h = hoverRegion(pos ? pos.x : null, pos ? pos.y : null);
+  if (h.kind === G.hover.kind && h.idx === G.hover.idx) return;
+  G.hover = h;
+  canvas.style.cursor = h.kind ? 'pointer' : '';
+}
+canvas.addEventListener('pointermove', e => {
+  if (e.pointerType === 'touch') return;   // a finger dragging the stick is not hovering
+  G.hoverPos = canvasXY(e);
+  refreshHover();
+});
+canvas.addEventListener('pointerleave', () => { G.hoverPos = null; refreshHover(); });
 
 // On the menu the codex overlays the title; mid-run it pauses the game
 // underneath, and closing it resumes play. Shared by the I key and the
@@ -280,6 +344,7 @@ function setPaused(on) {
   touchUI.classList.toggle('overlay', on);
   if (on) {
     G.pauseStart = performance.now();
+    G.pauseAnim = 0;   // drives the overlay's fade-in, so it restarts every pause
     releaseInput();
     lbRefresh(false);   // warm up the leaderboard panel (no-op when offline)
     SFX.pause(true);
@@ -309,6 +374,7 @@ const BOMB_FUSE = 1.6, BOMB_RADIUS = 95, BOMB_DAMAGE = 26;
 function placeBomb() {
   const p = G.player;
   if (p.bombs <= 0) {
+    SFX.deny();
     G.toast = { title: '没有炸弹', desc: '击杀敌人或去商店购买炸弹', t: 1.2 };
     return;
   }
@@ -365,6 +431,7 @@ function useActiveItem() {
   if (!p.active) return;
   const a = p.active;
   if (a.charge < a.def.cost) {
+    SFX.deny();
     G.toast = { title: '充能不足', desc: '清理房间或拾取电池来充能', t: 1.2 };
     return;
   }
@@ -384,6 +451,7 @@ if (IS_TOUCH) {
   // where the heart row is drawn. Measure how far down they reach (in canvas
   // units — the canvas is CSS-scaled) and let renderHUD start below them.
   const syncHudTop = () => {
+    syncUiScale();   // same triggers, so the two stay in step on rotation
     const c = canvas.getBoundingClientRect();
     const pad = document.getElementById('top-pad').getBoundingClientRect();
     // in rot90 mode the canvas' game-y axis runs along the screen's x axis
@@ -453,9 +521,20 @@ if (IS_TOUCH) {
       if (rot90) { const vx = dx; dx = dy; dy = -vx; }   // viewport → rotated-UI axes
       const d = Math.hypot(dx, dy);
       const max = maxTravel();
-      if (d > max) { dx *= max / d; dy *= max / d; }
+      // dead zone: a resting thumb jitters a pixel or two, and a stick that
+      // reports that as input walks the player into every bullet in the room.
+      // Past the dead zone the remaining travel is rescaled to 0..1 so the top
+      // speed is unchanged — the stick just ignores the noise near the centre.
+      const dead = max * STICK_DEAD;
+      const k = max > 0 && d > dead ? Math.min(1, (d - dead) / (max - dead)) : 0;
+      const ux = d > 0 ? dx / d : 0, uy = d > 0 ? dy / d : 0;
+      dx = ux * k * max; dy = uy * k * max;
       knob.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
-      touch.moveX = dx / max; touch.moveY = dy / max;
+      // max is 0 when the pad is display:none (an overlay is up). Dividing there
+      // would push NaN into touch.moveX and from there into the player's position,
+      // so the guard keeps the value at 0 instead of poisoning the whole run.
+      touch.moveX = max > 0 ? dx / max : 0;
+      touch.moveY = max > 0 ? dy / max : 0;
     }
   }, { passive: false });
   const endStick = e => {
@@ -482,28 +561,84 @@ if (IS_TOUCH) {
       if (G.state !== 'play') confirmScreen();
     }, { passive: false });
     btn.addEventListener('touchend', e => { e.preventDefault(); if (touch.fire === dirVec[d]) touch.fire = null; }, { passive: false });
+    // a call, a notification or a gesture can cancel a touch without ever
+    // sending touchend; without this the direction stuck and the player kept
+    // firing at whatever was in front of them until the next tap
+    btn.addEventListener('touchcancel', e => { e.preventDefault(); if (touch.fire === dirVec[d]) touch.fire = null; }, { passive: false });
+    // keyboard: hold Enter/Space on a focused direction to keep firing that way.
+    // stopPropagation for the same reason as bindKey — the global handler would
+    // otherwise read Space as "use active item" on top of the shot.
+    btn.addEventListener('keydown', e => {
+      if (e.code !== 'Enter' && e.code !== 'Space') return;
+      e.preventDefault();
+      e.stopPropagation();
+      SFX.unlock();
+      if (G.paused) { closeOverlays(); return; }
+      touch.fire = dirVec[d];
+      if (G.state !== 'play') confirmScreen();
+    });
+    btn.addEventListener('keyup', e => {
+      if (e.code !== 'Enter' && e.code !== 'Space') return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (touch.fire === dirVec[d]) touch.fire = null;
+    });
   });
 
+  // Enter/Space on a focused touch button. Not a `click` listener for the *action*
+  // itself: touchstart already calls preventDefault, but a tap can still produce a
+  // synthesized click on some engines and the action would fire twice. Assistive
+  // tech, on the other hand, activates a focused button with a click and never a
+  // keydown, so `click` is handled too — guarded by the timestamp of the last
+  // touchstart, which is the one path that must not double-fire.
+  const bindKey = (el, fn) => {
+    let lastTouch = 0;
+    el.addEventListener('touchstart', () => { lastTouch = performance.now(); }, { passive: true });
+    el.addEventListener('keydown', e => {
+      if (e.code !== 'Enter' && e.code !== 'Space') return;
+      e.preventDefault();
+      // stopPropagation matters: the window-level keydown handler below also acts
+      // on Enter/Space (start / confirm / resume), so without this a focused
+      // 暂停 button would pause and then be immediately resumed by the global one.
+      e.stopPropagation();
+      SFX.unlock();
+      fn();
+    });
+    el.addEventListener('click', () => {
+      if (performance.now() - lastTouch < 700) return;   // already handled by touchstart
+      SFX.unlock();
+      fn();
+    });
+  };
   // bomb / active-item buttons: the two keyboard-only actions (E / Space)
   // that used to be unreachable on touch
   const bindAction = (id, fn) => {
-    document.getElementById(id).addEventListener('touchstart', e => {
+    const el = document.getElementById(id);
+    el.addEventListener('touchstart', e => {
       e.preventDefault();
       SFX.unlock();
       if (G.paused) { closeOverlays(); return; }
       if (G.state === 'play') fn();
     }, { passive: false });
+    // these are real <button>s, so a keyboard (touch laptop) or a screen reader's
+    // virtual cursor can focus them — and until now Enter/Space did nothing
+    bindKey(el, () => {
+      if (G.paused) { closeOverlays(); return; }
+      if (G.state === 'play') fn();
+    });
   };
   bindAction('btn-bomb', placeBomb);
   bindAction('btn-item', useActiveItem);
 
   // top-left pair: P and I have no keyboard on a phone
   const bindTap = (id, fn) => {
-    document.getElementById(id).addEventListener('touchstart', e => {
+    const el = document.getElementById(id);
+    el.addEventListener('touchstart', e => {
       e.preventDefault();
       SFX.unlock();
       fn();
     }, { passive: false });
+    bindKey(el, fn);
   };
   bindTap('btn-pause', () => {
     if (G.paused) closeOverlays();
@@ -511,6 +646,97 @@ if (IS_TOUCH) {
   });
   bindTap('btn-codex', toggleCodex);
 })();
+
+// ---------------- UI scale, touch button state, a11y ----------------
+// The canvas is CSS-scaled, so a font size in the source is only a relative
+// size: measure how many CSS px the 960-wide stage actually gets and lift UI
+// text back to a readable physical size on small screens (UIK, see utils.js).
+function syncUiScale() {
+  const r = canvas.getBoundingClientRect();
+  const cssW = rot90 ? r.height : r.width;   // game-x runs along this axis
+  UIK = cssW > 0 ? clamp(W / cssW, 1, 1.3) : 1;
+}
+window.addEventListener('resize', syncUiScale);
+window.addEventListener('orientationchange', syncUiScale);
+syncUiScale();
+
+// The touch buttons are plain DOM, so nothing stopped them from being pressed
+// when the action behind them could not happen: tapping 炸弹 with no bombs just
+// produced a toast explaining it afterwards. Mirror the game state onto them so
+// a dead button looks dead. Called from the main loop; the DOM is only touched
+// when the state actually flips.
+const touchButtons = IS_TOUCH ? {
+  bomb: document.getElementById('btn-bomb'),
+  item: document.getElementById('btn-item'),
+} : null;
+let touchBtnState = '';
+function syncTouchButtons() {
+  if (!touchButtons) return;
+  const p = G.player;
+  const live = G.state === 'play' && !G.paused;
+  const bomb = live && !!p && p.bombs > 0;
+  const item = live && !!p && !!p.active && p.active.charge >= p.active.def.cost;
+  const key = (bomb ? 'b' : '-') + (item ? 'i' : '-');
+  if (key === touchBtnState) return;
+  touchBtnState = key;
+  touchButtons.bomb.classList.toggle('off', !bomb);
+  touchButtons.item.classList.toggle('off', !item);
+}
+
+// short haptic tick alongside the events that already shake the screen.
+// Android Chrome only — iOS Safari has no vibrate — so it is a bonus where it
+// exists and silently nothing where it doesn't.
+function haptic(ms) {
+  try { if (navigator.vibrate) navigator.vibrate(ms); } catch (e) { /* some webviews throw */ }
+}
+
+// The HUD is canvas pixels: a screen reader sees an empty element. Mirror the
+// state that matters into a live region so the game is at least followable
+// without sight — the toast line, the screen transitions, and the three numbers
+// that change constantly during play.
+const srLive = document.getElementById('sr-live');
+let srLast = '';
+function syncAnnounce() {
+  const p = G.player;
+  let msg = '';
+  if (G.state === 'menu') msg = '标题界面　按 Enter 开始';
+  else if (G.state === 'dead') msg = '你死了　按 Enter 再来一次';
+  else if (G.state === 'win') msg = '通关　按 Enter 再来一次';
+  else if (G.state === 'dumateOffer') msg = 'dumate 抉择　左右选择　Enter 确认';
+  else if (G.paused) msg = '已暂停　按 P 继续';
+  else if (G.toast) msg = G.toast.title + '，' + G.toast.desc;
+  else if (p) msg = '生命 ' + Math.ceil(p.hp / 2) + ' 心　金币 ' + p.coins + '　炸弹 ' + p.bombs;
+  if (msg === srLast) return;
+  srLast = msg;
+  if (srLive) srLive.textContent = msg;
+}
+
+// ---- ambient bed ----
+// SFX has no music and never had any: every sound in the game is a one-shot, so
+// rooms were silent until something happened. This drives the drone defined in
+// js/audio.js: the root note walks down the chapters as you descend, opens up
+// while a boss is alive, and ducks to nothing while paused or on an end screen.
+// Only re-tuned when the situation actually changes, so it costs nothing per frame.
+const MUSIC_ROOTS = [98, 92.5, 87.3, 82.4, 77.8, 73.4, 69.3, 65.4, 61.7, 58.3, 55, 51.9];
+let _musicKey = '';
+function syncMusic() {
+  const boss = G.state === 'play' && G.enemies.some(e => e.isBoss);
+  const key = G.state + ':' + G.floorNum + ':' + (boss ? 1 : 0) + ':' + (G.paused ? 1 : 0);
+  if (key === _musicKey) return;
+  // Remember the request only if the bed actually accepted it: before the first
+  // user gesture the AudioContext is locked, and caching the key then would leave
+  // the ambience silent until the next floor / boss / pause change.
+  let ok = false;
+  if (G.state === 'menu') {
+    ok = SFX.music(MUSIC_ROOTS[0] * 0.75, 0.15);
+  } else {
+    const root = MUSIC_ROOTS[Math.min(MUSIC_ROOTS.length - 1, Math.max(0, G.floorNum - 1))];
+    ok = (G.paused || G.state === 'dead' || G.state === 'win')
+      ? SFX.music(root, -1)
+      : SFX.music(root, boss ? 1 : 0.35);
+  }
+  if (ok) _musicKey = key;
+}
 
 // ---------------- meta progress plumbing ----------------
 // Dev-tainted runs earn nothing — same anti-cheat rule as the leaderboard.

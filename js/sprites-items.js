@@ -52,7 +52,7 @@ function drawPickup(g, p) {
     g.lineWidth = 3;
     g.beginPath(); g.arc(p.x, p.y, 9, 0, TAU); g.fill(); g.stroke();
     g.fillStyle = '#9c7418';
-    g.font = 'bold 11px Trebuchet MS';
+    g.font = 'bold 11px ' + UI_SANS;
     g.textAlign = 'center'; g.textBaseline = 'middle';
     g.fillText('¢', p.x, p.y + 1);
   } else if (p.kind === 'chest') {
@@ -208,10 +208,10 @@ function drawShopWare(g, w, coins) {
   g.lineWidth = 2;
   g.beginPath(); g.arc(w.x - 14, ty, 6.5, 0, TAU); g.fill(); g.stroke();
   g.fillStyle = '#9c7418';
-  g.font = 'bold 9px Trebuchet MS';
+  g.font = 'bold 9px ' + UI_SANS;
   g.textAlign = 'center'; g.textBaseline = 'middle';
   g.fillText('¢', w.x - 14, ty + 1);
-  g.font = 'bold 15px Trebuchet MS';
+  g.font = 'bold 15px ' + UI_SANS;
   g.textAlign = 'left';
   g.strokeStyle = 'rgba(12,8,6,0.85)';
   g.lineWidth = 3;
@@ -228,13 +228,17 @@ function drawItemTooltip(g, t, coins) {
   const action = t.priceLabel != null ? t.priceLabel
     : (t.price != null ? '价格　' + t.price + ' 金币' : '碰撞获取');
   g.save();
-  g.font = 'bold 16px Trebuchet MS';
+  g.font = 'bold 16px ' + UI_SANS;
   const wName = g.measureText(t.name).width;
-  g.font = '13px Trebuchet MS';
+  g.font = '13px ' + UI_SANS;
   const wDesc = g.measureText(t.desc).width;
   const wPrice = g.measureText(action).width;
   const pw = Math.max(wName, wDesc, wPrice) + 28;
-  const ph = 76;
+  // The card's box is sized from measured text, so it has to grow with the font
+  // scale too — otherwise the three lines collide on a phone (UIK > 1).
+  const ph = 76 * UIK;
+  const pad = 14;
+  const ly1 = ph * 0.24, ly2 = ph * 0.53, ly3 = ph * 0.79;
   // anchor: card sits to the upper-left of the object
   const px = clamp(t.x - pw - 18, 8, W - pw - 8);
   const py = clamp(t.y - ph - 26, 8, H - ph - 8);
@@ -243,16 +247,16 @@ function drawItemTooltip(g, t, coins) {
   g.lineWidth = 2;
   g.beginPath(); g.rect(px, py, pw, ph); g.fill(); g.stroke();
   g.textAlign = 'left'; g.textBaseline = 'middle';
-  g.font = 'bold 16px Trebuchet MS';
+  g.font = 'bold 16px ' + UI_SANS;
   g.fillStyle = '#f4d03f';
-  g.fillText(t.name, px + 14, py + 18);
-  g.font = '13px Trebuchet MS';
+  g.fillText(t.name, px + pad, py + ly1);
+  g.font = '13px ' + UI_SANS;
   g.fillStyle = '#d8ccb0';
-  g.fillText(t.desc, px + 14, py + 40);
+  g.fillText(t.desc, px + pad, py + ly2);
   const affordable = t.priceLabel != null ? t.can !== false
     : (t.price == null || coins >= t.price);
   g.fillStyle = affordable ? '#a8d86a' : '#e8452f';
-  g.fillText(action, px + 14, py + 60);
+  g.fillText(action, px + pad, py + ly3);
   g.restore();
 }
 

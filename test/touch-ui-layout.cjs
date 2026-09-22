@@ -131,6 +131,79 @@ async function layout() {
   await page.setViewportSize({ width: 812, height: 375 });
   await page.waitForTimeout(650);
 
+  // ---------------------------------------------------------- 手感细节
+  // 尺寸对了不代表按得住 / 按得准：这一节断的是命中区、死区与按钮状态，
+  // 都是「看截图看不出来、只有真的摸一下才知道」的东西
+  section('触控手感细节');
+  const cornerGeo = await page.evaluate(() => {
+    const b = document.getElementById('btn-pause').getBoundingClientRect();
+    const c = document.getElementById('btn-codex').getBoundingClientRect();
+    // 命中区由 .corner-btn::after 的 inset 撑出：从视觉框外 3px 处反查命中的元素
+    const probe = (x, y) => {
+      const el = document.elementFromPoint(x, y);
+      return el ? (el.id || el.className || el.tagName) : null;
+    };
+    return {
+      w: b.width, h: b.height,
+      gap: c.left - b.right,
+      leftOutside: probe(b.left - 3, b.top + b.height / 2),
+    };
+  });
+  ok('角落按钮视觉尺寸仍在 30-42px 区间（与既有断言一致）',
+    cornerGeo.w >= 30 && cornerGeo.w <= 42, cornerGeo.w.toFixed(1) + 'px');
+  ok('视觉框外 3px 仍命中暂停按钮（命中区被 ::after 撑大）',
+    cornerGeo.leftOutside === 'btn-pause', String(cornerGeo.leftOutside));
+  ok('两个角落按钮的命中区不重叠（gap 12px > 两侧各外扩 4px）',
+    cornerGeo.gap >= 12, 'gap=' + cornerGeo.gap.toFixed(1) + 'px');
+  const stickFeel = await page.evaluate(() => {
+    const zone = document.getElementById('stick-zone');
+    const base = document.getElementById('stick-base');
+    const zr = zone.getBoundingClientRect();
+    const cx = zr.left + 60, cy = zr.top + 60;
+    const mk = (x, y) => new Touch({ identifier: 11, target: zone, clientX: x, clientY: y });
+    const send = (type, t) => zone.dispatchEvent(new TouchEvent(type, {
+      touches: type === 'touchend' ? [] : [t], changedTouches: [t], bubbles: true, cancelable: true,
+    }));
+    send('touchstart', mk(cx, cy));
+    const max = base.offsetWidth * 0.42;
+    send('touchmove', mk(cx + max * 0.08, cy));   // 死区内
+    const inDead = touch.moveX;
+    send('touchmove', mk(cx + max * 3, cy));      // 拉满（超出也会被夹到 1）
+    const full = touch.moveX;
+    send('touchend', mk(cx, cy));
+    return { inDead, full, released: touch.moveX, max };
+  });
+  ok('摇杆死区：8% 行程读作 0（拇指静止不会漂移）', stickFeel.inDead === 0, 'moveX=' + stickFeel.inDead);
+  ok('摇杆死区：拉满仍是 1（最高速没被削弱）', Math.abs(stickFeel.full - 1) < 0.02,
+    'moveX=' + stickFeel.full.toFixed(3));
+  ok('摇杆松手后输入归零', stickFeel.released === 0);
+
+  const btnState = await page.evaluate(() => {
+    G.state = 'play'; G.paused = false;
+    const bomb = document.getElementById('btn-bomb');
+    const item = document.getElementById('btn-item');
+    G.player.bombs = 0;
+    G.player.active = null;
+    syncTouchButtons();
+    const off = bomb.classList.contains('off') && item.classList.contains('off');
+    G.player.bombs = 3;
+    syncTouchButtons();
+    const on = !bomb.classList.contains('off');
+    return { off, on };
+  });
+  ok('没炸弹 / 没主动道具时按钮灰化，有了就恢复', btnState.off && btnState.on, JSON.stringify(btnState));
+
+  const fireCancel = await page.evaluate(() => {
+    // 射击键的 touchcancel 兜底：来电/通知打断后方向不该粘住
+    const btn = document.querySelector('.fire-btn[data-dir="up"]');
+    const t = new Touch({ identifier: 12, target: btn, clientX: 0, clientY: 0 });
+    btn.dispatchEvent(new TouchEvent('touchstart', { touches: [t], changedTouches: [t], bubbles: true, cancelable: true }));
+    const firing = !!touch.fire;
+    btn.dispatchEvent(new TouchEvent('touchcancel', { touches: [], changedTouches: [t], bubbles: true, cancelable: true }));
+    return { firing, afterCancel: touch.fire };
+  });
+  ok('射击键按下即开火，touchcancel 后方向不残留',
+    fireCancel.firing && fireCancel.afterCancel === null, JSON.stringify(fireCancel));
   await page.screenshot({ path: '/tmp/touch-ui-layout.png' });
   console.log('screenshot: /tmp/touch-ui-layout.png');
   await browser.close();

@@ -64,6 +64,9 @@ module.exports = async ({ page, context, consoleErrors }) => {
   const lumaPaused = await luma(page);
   ok('暂停遮罩压暗了画面', lumaPaused < lumaPlay - 3,
     'play=' + lumaPlay.toFixed(1) + ' paused=' + lumaPaused.toFixed(1));
+  // the overlay now fades in over 0.15s (G.pauseAnim): two frames in, 「暂 停」 is
+  // only ~20% opaque, so wait for full opacity before sampling its pixels
+  await page.waitForFunction(() => G.pauseAnim >= 0.16, null, { timeout: 2000 });
   ok('暂停界面画出了文字/属性面板', await page.evaluate(() => {
     // sample the row where 「暂 停」 is drawn; it must contain bright pixels
     const d = ctx.getImageData(0, 90, canvas.width, 60).data;

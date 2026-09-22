@@ -1,6 +1,10 @@
 'use strict';
 // ---------------- run / floor / room flow ----------------
 function startRun() {
+  // the menu uses ↑↓ for difficulty and ←→ for the character ring: clear any
+  // key still held when the run starts, or the player enters the first room
+  // already firing / walking in whatever direction was last pressed
+  releaseInput();
   G.player = makePlayer(CHAR_DEFS[G.charIdx].id);
   G.newUnlocks = [];
   G.unlockPopups = [];
@@ -25,6 +29,7 @@ function startRun() {
   LB.submitState = null;
   loadFloor();
   if (custom) G.toast = { title: '种子局 · ' + G.seedStr, desc: '本局不计入排行榜与解锁', t: 3.2 };
+  else if (DIFF_KEY !== 'normal') G.toast = { title: '难度 · ' + diffDef().label, desc: diffDef().desc, t: 3.2 };
   G.state = 'play';
   SFX.start();
 }
@@ -56,6 +61,12 @@ function loadFloor() {
 
 function enterRoom(room, fromSide) {
   if (fromSide) SFX.door();
+  // Crossing a doorway used to be a teleport: the player's position jumped to the
+  // opposite door with nothing in between. G.fadeT was declared for exactly this
+  // and never used — now it lifts a short black veil off the new room (drawn in
+  // render(), decayed in updatePlay). Only on a real door crossing, so the first
+  // room of a run does not open on a flash.
+  G.fadeT = fromSide ? 0.14 : 0;
   G.room = room;
   G.tears = [];
   G.eshots = [];
@@ -119,6 +130,7 @@ function spawnRoomEnemies(room) {
     const def = bossDefForFloor(depth);
     G.enemies.push(makeBoss(def, W / 2, H / 2 - 40));
     room.bossDef = def;
+    SFX.roar();   // boss rooms used to open in complete silence
     return;
   }
   // mini-boss: an earlier floor's boss at reduced hp, ambushing a normal room
@@ -128,16 +140,20 @@ function spawnRoomEnemies(room) {
     b.miniboss = true;
     b.hp *= 0.5;
     b.maxHpRef = b.hp;
+    b.hpWindow = null;   // the window above was halved with it — don't report a stale range
+    SFX.roar();
     b.name = '小 ' + def.name;
     G.enemies.push(b);
     room.bossDef = def;
     return;
   }
-  // exponential-ish pressure curve: room population compounds with depth;
-  // the shopkeeper only hires a small guard detail
+  // pressure curve: room population compounds with depth and the preset's
+  // enemyCount knob scales the lot. The exponent came down from 1.35 to 1.15
+  // because deep floors now buy their difficulty with speed and dps instead of
+  // sheer body count — 10 bodies per room was making the late chapters a slog
   const n = room.kind === 'shop'
-    ? Math.min(5, randi(2, 3) + Math.floor(depth / 5))
-    : Math.min(10, (depth <= 2 ? randi(2, 4) : randi(3, 5)) + Math.floor(Math.pow(depth, 1.35) / 3)
+    ? Math.min(5, Math.round((randi(2, 3) + Math.floor(depth / 5)) * diffMul('enemyCount')))
+    : Math.min(12, Math.round(((depth <= 2 ? randi(2, 4) : randi(3, 5)) + Math.floor(Math.pow(depth, 1.15) / 3)) * diffMul('enemyCount'))
       + (G.floor.hard ? 1 : 0));
   const types = roomEnemyPool(depth);
   const wares = room.shopItems || [];
@@ -151,12 +167,13 @@ function spawnRoomEnemies(room) {
       wares.some(w => dist(x, y, w.x, w.y) < 80)));
     G.enemies.push(makeEnemy(pick(types), x, y, depth));
   }
+  SFX.spawn();   // one floor-shift sound for the whole wave, not one per enemy
 }
 
 // one wave of a challenge room: a burst of enemies teleporting in around the walls
 function spawnChallengeWave(room) {
   const depth = G.floorNum;
-  const n = Math.min(8, randi(3, 4) + Math.floor(depth / 3));
+  const n = Math.min(8, Math.round((randi(3, 4) + Math.floor(depth / 3)) * diffMul('enemyCount')));
   const types = roomEnemyPool(depth);
   for (let i = 0; i < n; i++) {
     let x, y, tries = 0;

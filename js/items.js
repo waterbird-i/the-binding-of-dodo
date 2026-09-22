@@ -417,6 +417,53 @@ function poolDefs(pool) {
   return ITEM_DEFS.filter(d => (d.pool || 'treasure') === pool);
 }
 
+// ---- draw tiers ----
+// Every passive sits in one of three tiers. The pool used to draw uniformly,
+// which made run strength a coin flip: one run opened with Brimstone and rolled
+// over the whole dungeon, the next still found +0.4 damage on floor 11. Tiers
+// are drawn with depth-dependent weights instead, so early floors stay plain
+// and late floors stop handing out chaff. Anything not listed below is tier 0.
+const ITEM_TIERS = {
+  // tier 1 — obvious stat gain or a conditional tactical effect
+  hot_pepper: 1, bone_needle: 1, big_tear: 1, rubber_ball: 1, venom_flask: 1,
+  frost_shard: 1, sharp_tooth: 1, orbit_tear: 1, baby_friend: 1, spike_shell: 1,
+  blood_bag: 1, iron_bar: 1, rage_pill: 1, wide_pupil: 1, dark_book: 1,
+  skull_mask: 1, candle_flame: 1, spider_egg: 1, rotten_meat: 1, sun_shard: 1,
+  cross_pendant: 1, blood_tear: 1, twin_orbit: 1, sharp_bone: 1, kings_mark: 1,
+  rubber_cement: 1, common_cold: 1, moms_contact: 1, lump_of_coal: 1,
+  proptosis: 1, tough_love: 1, brother_bobby: 1, sister_maggy: 1,
+  holy_mantle: 1, toxic_shock: 1, coal_dust: 1, fang_charm: 1, blood_clot: 1,
+  guardian_orbit: 1, thorn_crown: 1, leech_egg: 1, demon_pact: 1, aura_candle: 1,
+  // tier 2 — picks that define the run
+  triple_feather: 2, magnet_tear: 2, brimstone: 2, boom_tear: 2, devil_horn: 2,
+  quad_feather: 2, ipecac: 2, ouija_board: 2, parasite: 2, godhead: 2,
+  one_up: 2, dead_cat: 2, the_wafer: 2, glass_cannon: 2, night_spirit: 2,
+  twin_feather: 2, splinter_shot: 2, dodo_wings: 2, life_mushroom: 2,
+};
+// how often each tier comes up, by floor: [tier0, tier1, tier2]
+const TIER_WEIGHTS_EARLY = [6, 3, 1];   // floors 1-3
+const TIER_WEIGHTS_MID = [3, 5, 2];     // floors 4-8
+const TIER_WEIGHTS_LATE = [1, 4, 5];    // floors 9-12
+function tierWeights(depth) {
+  const d = Number(depth) || 1;   // undefined / NaN fall back to the early mix
+  return d <= 3 ? TIER_WEIGHTS_EARLY : (d <= 8 ? TIER_WEIGHTS_MID : TIER_WEIGHTS_LATE);
+}
+function itemTier(id) { return clamp(ITEM_TIERS[id] || 0, 0, 2); }
+// Exactly one rng() draw, same as pick(): a seed still produces the same floor
+// layout, room kinds and number of draws — only which item pops out changes.
+function pickTiered(cand, depth) {
+  const w = tierWeights(depth);
+  let total = 0;
+  const ws = cand.map(d => { const wt = w[itemTier(d.id)]; total += wt; return wt; });
+  if (!(total > 0)) return pick(cand);
+  let roll = rng() * total;
+  for (let i = 0; i < cand.length; i++) {
+    roll -= ws[i];
+    if (roll < 0) return cand[i];
+  }
+  return cand[cand.length - 1];
+}
+
 // prefer items the player hasn't collected yet, so a run keeps surprising;
 // pool narrows the roll to one pool, falling back to everything if drained
 function randomItemDef(exclude, pool) {
@@ -425,7 +472,8 @@ function randomItemDef(exclude, pool) {
   const fresh = d => !exclude.includes(d.id) && !metaItemLocked(d.id) && !charBansItem(d.id);
   let cand = poolDefs(pool).filter(fresh);
   if (!cand.length) cand = ITEM_DEFS.filter(fresh);
-  return cand.length ? pick(cand) : pick(ITEM_DEFS);
+  const depth = (typeof G !== 'undefined' && G.floorNum) ? G.floorNum : 1;
+  return cand.length ? pickTiered(cand, depth) : pick(ITEM_DEFS);
 }
 
 function spawnItemPedestal(room, x, y, pool) {

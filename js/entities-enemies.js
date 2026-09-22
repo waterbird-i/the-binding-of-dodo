@@ -5,14 +5,24 @@
 function enemyHpScale(depth) {
   // a second exponent kicks in after floor 6 so a scaled build keeps meeting
   // resistance instead of one-shotting every room in the late chapters
-  return Math.pow(1.22, depth - 1) * Math.pow(1.14, Math.max(0, depth - 6));
+  return Math.pow(1.22, depth - 1) * Math.pow(1.10, Math.max(0, depth - 6));
 }
-function enemyTouchDamage(depth) { return 1 + Math.floor((depth - 1) / 4); } // 1 → 2 → 3
-function enemyShotDamage(depth) { return depth >= 11 ? 4 : (depth >= 5 ? 3 : 1); }
+// deep floors also move faster (+2% per floor): the late game should threaten
+// through aggression, not only through hp pools the player chews through
+function enemySpeedScale(depth) { return 1 + (depth - 1) * 0.02; }
+// damage steps stay whole half-hearts, so the preset multiplies then rounds
+function enemyTouchDamage(depth) {
+  return Math.round((1 + Math.floor((depth - 1) / 4)) * diffMul('enemyDmg'));   // 1 → 2 → 3
+}
+function enemyShotDamage(depth) {
+  return Math.round((depth >= 11 ? 4 : (depth >= 5 ? 3 : 1)) * diffMul('enemyDmg'));
+}
 
 function makeEnemy(type, x, y, depth = 1) {
   const hard = typeof G !== 'undefined' && G.floor && G.floor.hard;
-  const hpScale = enemyHpScale(depth) * (hard ? 1.35 : 1);
+  const hpScale = enemyHpScale(depth) * (hard ? 1.35 : 1) * diffMul('enemyHp');
+  // every per-type speed below is scaled here: depth ramp × difficulty preset
+  const spMul = enemySpeedScale(depth) * diffMul('enemySpeed');
   const base = {
     type, x, y, vx: 0, vy: 0, anim: rand(10), flash: 0, hitstop: 0, dead: false,
     z: 0, vz: 0, knockX: 0, knockY: 0,
@@ -20,34 +30,36 @@ function makeEnemy(type, x, y, depth = 1) {
     shotDmg: enemyShotDamage(depth),
     // materialize window: rises out of the floor, can't act / be hit / touch
     spawnT: 0.55, spawnMax: 0.55,
+    speedMul: spMul,        // remembered so the hopper's jump can scale too
     poison: 0, poisonT: 0, slowT: 0,
   };
   switch (type) {
-    case 'gaper': return { ...base, r: 16, hp: 12 * hpScale, speed: rand(72, 88), awake: false };
-    case 'fly': return { ...base, r: 9, hp: 5 * hpScale, speed: rand(55, 70), flying: true };
-    case 'spitter': return { ...base, r: 16, hp: 14 * hpScale, speed: 40, charge: 0, shootCd: rand(1.2, 2.4), eyeX: 0, eyeY: 0, flying: true, homingShots: depth >= 8 };
+    case 'gaper': return { ...base, r: 16, hp: 12 * hpScale, speed: rand(72, 88) * spMul, awake: false };
+    case 'fly': return { ...base, r: 9, hp: 5 * hpScale, speed: rand(55, 70) * spMul, flying: true };
+    case 'spitter': return { ...base, r: 16, hp: 14 * hpScale, speed: 40 * spMul, charge: 0, shootCd: rand(1.2, 2.4), eyeX: 0, eyeY: 0, flying: true, homingShots: depth >= 8 };
     case 'hopper': return { ...base, r: 13, hp: 10 * hpScale, hopCd: rand(0.6, 1.4), squash: 0 };
     // rooted turret: never moves, fires a rotating four-way cross
     case 'sentry': return { ...base, r: 17, hp: 18 * hpScale, speed: 0, shootCd: rand(1.4, 2.6), charge: 0, spin: rand(TAU) };
     // Boom Fly: ricochets diagonally, detonates on death
     case 'boomfly': {
       const a = pick([0.25, 0.75, 1.25, 1.75]) * Math.PI + rand(-0.2, 0.2);
-      return { ...base, r: 12, hp: 8 * hpScale, flying: true, vx: Math.cos(a) * 115, vy: Math.sin(a) * 115 };
+      return { ...base, r: 12, hp: 8 * hpScale, flying: true, vx: Math.cos(a) * 115 * spMul, vy: Math.sin(a) * 115 * spMul };
     }
     // Globin: first "death" collapses it into a pile that reforms at half hp
-    case 'globin': return { ...base, r: 15, hp: 16 * hpScale, maxHp: 16 * hpScale, speed: rand(62, 76), reforms: 1, pile: 0, detourT: 0, detourDir: 1 };
+    case 'globin': return { ...base, r: 15, hp: 16 * hpScale, maxHp: 16 * hpScale, speed: rand(62, 76) * spMul, reforms: 1, pile: 0, detourT: 0, detourDir: 1 };
     // Knight: slow stomp, immune from the front (see knightBlocksTear)
-    case 'knight': return { ...base, r: 15, hp: 20 * hpScale, speed: rand(46, 56), faceX: 0, faceY: 1 };
+    case 'knight': return { ...base, r: 15, hp: 20 * hpScale, speed: rand(46, 56) * spMul, faceX: 0, faceY: 1 };
     // Vis: stops to charge, then fires a sustained purple laser
-    case 'vis': return { ...base, r: 16, hp: 22 * hpScale, speed: 34, shootCd: rand(1.6, 2.8), charging: 0 };
+    case 'vis': return { ...base, r: 16, hp: 22 * hpScale, speed: 34 * spMul, shootCd: rand(1.6, 2.8), charging: 0 };
   }
-  return { ...base, r: 14, hp: 10 * hpScale, speed: 60 };
+  return { ...base, r: 14, hp: 10 * hpScale, speed: 60 * spMul };
 }
 
 function damageEnemy(G, e, dmg, kvx, kvy) {
   if (e._hp0 === undefined) e._hp0 = e.hp;   // full hp at first blood, for the execute threshold
   e.hp -= dmg;
   e.flash = 0.08;
+  e.hitPop = 0.12;   // short squeeze, applied in drawEnemyCore (drawEnemyByType)
   SFX.hit();
   if (!e.isBoss) {
     e.hitstop = HITSTOP_HIT;   // only the struck enemy freezes; bosses shrug it off
@@ -89,6 +101,12 @@ function killEnemy(G, e) {
   if (e.type === 'boomfly') explodeAt(G, e.x, e.y, 72, 10, true);
   spawnBlood(G, e.x, e.y, e.isBoss ? 40 : 14);
   G.room.stains.push({ x: e.x, y: e.y, r: e.isBoss ? 40 : 16, seed: randi(1, 1e9) });
+  // World hit-stop on the killing blow. Before this the only pause in the game
+  // was 2 frames on the struck enemy, bosses exempt, and kills had none — which
+  // is why the biggest hits felt exactly like the smallest ones. FREEZE_BOSS is
+  // long enough to read as "something important just ended".
+  G.freeze = Math.max(G.freeze || 0, e.isBoss ? FREEZE_BOSS : FREEZE_KILL);
+  if (e.isBoss) haptic(30);
   // mini-boss: a proper reward, but no trapdoor — the floor boss still awaits
   if (e.isBoss && e.miniboss) {
     G.shake = 14;
@@ -139,8 +157,16 @@ function updateEnemies(G, dt) {
   const p = G.player;
   const room = G.room;
   for (const e of G.enemies) {
+    // boss hp bar: a white ghost bar trails the red fill so a big hit reads as a
+    // chunk of health coming off (renderHUD only reads hpLag)
+    if (e.isBoss) {
+      const r = clamp(e.hp / e.maxHpRef, 0, 1);
+      if (e.hpLag === undefined || e.hpLag < r) e.hpLag = r;
+      else e.hpLag = Math.max(r, e.hpLag - dt * 0.8);
+    }
     e.anim += dt;
     e.flash = Math.max(0, e.flash - dt);
+    if (e.hitPop > 0) e.hitPop = Math.max(0, e.hitPop - dt);
     // hit-stop: the enemy that just got hit holds still for a couple of frames
     if (e.hitstop > 0) { e.hitstop -= dt; continue; }
     // materialize window: rising out of the floor — no move / attack / contact
@@ -288,7 +314,7 @@ function updateEnemies(G, dt) {
         if (e.hopCd <= 0) {
           e.hopCd = rand(0.7, 1.3);
           const a = Math.atan2(dy, dx) + rand(-0.5, 0.5);
-          const hopSpeed = rand(150, 220) * slow;
+          const hopSpeed = rand(150, 220) * slow * (e.speedMul || 1);
           e.vx = Math.cos(a) * hopSpeed; e.vy = Math.sin(a) * hopSpeed;
           e.vz = 260; e.z = 0.01;
         }
@@ -310,8 +336,11 @@ function updateEnemies(G, dt) {
 // enemy projectile factory; opts adds behaviors: {homing, homeT} tracking
 // shots and {curve} arcing shots
 function addEnemyTear(G, x, y, a, sp, r, dmg, opts) {
+  // the preset's bullet-speed knob lands here: mob shots and the few boss
+  // attacks that build their bullets through this factory (bossShotFrom has
+  // its own path, so those get ~1.17× instead of 1.08× on 硬核 — harmless)
   G.eshots.push(Object.assign({
-    x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+    x, y, vx: Math.cos(a) * sp * diffMul('bulletSpeed'), vy: Math.sin(a) * sp * diffMul('bulletSpeed'),
     r, dmg: dmg || 1, bounces: 0, dead: false,
   }, opts || null));
 }
@@ -477,6 +506,9 @@ function hurtPlayer(G, dmg, fromX, fromY) {
   p.invuln = 1.1 + (p.invulnBonus || 0);
   p.hurtFlash = 0.35;
   G.shake = 10;
+  // screen-level readout (renderHUD's bloom) + a haptic tick where supported
+  G.hurtT = 0.45;
+  haptic(16);
   SFX.hurt();
   spawnBlood(G, p.x, p.y, 8);
   // knock player away

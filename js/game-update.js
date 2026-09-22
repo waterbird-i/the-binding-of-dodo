@@ -3,6 +3,13 @@
 function updatePlay(dt) {
   const p = G.player;
   G.stats.time = (performance.now() - G.stats.startTime) / 1000;
+  // World hit-stop: for a few frames after a kill (longer for a boss) the *world*
+  // holds still — enemies, bullets, beams, particles. Everything the player does
+  // still resolves (movement, firing, pickups, room logic): freezing the entire
+  // update made a single frame do nothing at all, which is also the contract the
+  // headless suites drive the game with.
+  if (G.freeze > 0) G.freeze = Math.max(0, G.freeze - dt);
+  const wdt = G.freeze > 0 ? 0 : dt;
 
   // --- movement input ---
   let ix = 0, iy = 0;
@@ -53,15 +60,15 @@ function updatePlay(dt) {
     spawnPlayerTears(G, fd[0], fd[1]);
   }
 
-  updateTears(G, dt);
-  updateEnemies(G, dt);
-  updateEnemyShots(G, dt);
-  updateBeams(G, dt);
-  updateLasers(G, dt);
-  updateOrbitals(G, dt);
-  updateFamiliars(G, dt);
-  updateParticles(G, dt);
-  updateBombs(dt);
+  updateTears(G, wdt);
+  updateEnemies(G, wdt);
+  updateEnemyShots(G, wdt);
+  updateBeams(G, wdt);
+  updateLasers(G, wdt);
+  updateOrbitals(G, wdt);
+  updateFamiliars(G, wdt);
+  updateParticles(G, wdt);
+  updateBombs(wdt);
 
   // --- pickups ---
   for (const pk of G.room.pickups) {
@@ -126,6 +133,7 @@ function updatePlay(dt) {
         if (!devilDealAfford(p, ped.devilPrice)) {
           if (ped.denyT <= 0) {
             ped.denyT = 1.2;
+            SFX.deny();
             G.toast = { title: '生命不足', desc: '恶魔对你的躯壳不感兴趣', t: 1.4 };
           }
           continue;
@@ -195,6 +203,7 @@ function updatePlay(dt) {
       if (p.coins < w.price) {
         if (w.denyT <= 0) {
           w.denyT = 1.2;
+          SFX.deny();
           G.toast = { title: '金币不足', desc: '还差 ' + (w.price - p.coins) + ' 金币', t: 1.2 };
         }
         continue;
@@ -215,6 +224,7 @@ function updatePlay(dt) {
         if (!p.active || p.active.charge >= p.active.def.cost) {
           if (w.denyT <= 0) {
             w.denyT = 1.2;
+            SFX.deny();
             G.toast = { title: '暂时用不上', desc: p.active ? '主动道具已充满' : '还没有主动道具', t: 1.2 };
           }
           continue;
@@ -310,4 +320,6 @@ function updatePlay(dt) {
   if (G.toast) { G.toast.t -= dt; if (G.toast.t <= 0) G.toast = null; }
   if (G.floorIntro) { G.floorIntro.t -= dt; if (G.floorIntro.t <= 0) G.floorIntro = null; }
   G.shake = Math.max(0, G.shake - dt * 40);
+  // room-entry fade (set by enterRoom): a short black lift on the new room
+  G.fadeT = Math.max(0, (G.fadeT || 0) - dt);
 }

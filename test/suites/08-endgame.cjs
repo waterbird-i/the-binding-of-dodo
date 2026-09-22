@@ -19,7 +19,8 @@ module.exports = async ({ page, context, consoleErrors }) => {
       await frame();
       const boss = G.enemies.find(e => e.isBoss);
       if (!boss) return { error: 'floor ' + floor + ' boss did not spawn', log };
-      log.push({ floor, name: boss.name, id: boss.def.id, hp: boss.maxHpRef, theme: PAL.floor });
+      log.push({ floor, name: boss.name, id: boss.def.id, hp: boss.maxHpRef,
+        win: boss.hpWindow, hard: !!(G.floor && G.floor.hard), theme: PAL.floor });
       // let the fight actually run for a bit, then finish it
       for (let i = 0; i < 40; i++) { godMode(); await frame(); }
       godMode();
@@ -30,7 +31,8 @@ module.exports = async ({ page, context, consoleErrors }) => {
         // the previous boss corpse lingers a few frames — skip it
         const fin = G.enemies.find(e => e.isBoss && !e.dead);
         if (!fin || !fin.def.final) return { error: 'final boss did not appear', log };
-        log.push({ floor, name: fin.name, id: fin.def.id, hp: fin.maxHpRef, final: true, theme: PAL.floor });
+        log.push({ floor, name: fin.name, id: fin.def.id, hp: fin.maxHpRef, final: true,
+          win: fin.hpWindow, hard: !!(G.floor && G.floor.hard), theme: PAL.floor });
         for (let i = 0; i < 40; i++) { godMode(); await frame(); }
         damageEnemy(G, fin, 1e6, 0, -1);
         for (let i = 0; i < 6; i++) await frame();
@@ -43,7 +45,8 @@ module.exports = async ({ page, context, consoleErrors }) => {
     // 设计血量对照表：断言「不按 DPS 抬下限」在页面上下文里查（Node 侧没有 BOSS_DEFS）
     const defHp = {};
     for (const d of BOSS_DEFS) defHp[d.id] = d.hp;
-    return { log, defHp, state: G.state, kills: G.stats.kills, time: G.stats.time };
+    return { log, defHp, state: G.state, kills: G.stats.kills, time: G.stats.time,
+      diffBossHp: diffMul('bossHp') };
   });
   ok('12 层跑通没有中断', !run.error, run.error);
   if (!run.error) {
@@ -51,11 +54,26 @@ module.exports = async ({ page, context, consoleErrors }) => {
     eq('12 层各一个不同 Boss', new Set(run.log.slice(0, 12).map(b => b.id)).size, 12);
     ok('第 12 层触发第 13 个最终 Boss', !!run.log[12] && run.log[12].final === true,
       JSON.stringify(run.log[12] || null));
-    ok('Boss 血量随层数递增', run.log.slice(0, 12).every((b, i, a) => i === 0 || b.hp > a[i - 1].hp),
+    ok('Boss 血量随层数不降（窗口把早层抬上去，血表高处继续抬升）',
+      run.log.slice(0, 12).every((b, i, a) => i === 0 || b.hp >= a[i - 1].hp),
       run.log.map(b => b.hp).join(','));
-    ok('Boss 血量不超过设计值（不按 DPS 抬下限）',
-      run.log.every(b => b.hp <= run.defHp[b.id]),
-      run.log.map(b => b.hp).join(','));
+    // 双边窗口的精确校验：hp = clamp(血表 × (难点层 1.2) × 难度旋钮, 下限, 上限)
+    const expectHp = (b) => {
+      const table = Math.round(run.defHp[b.id] * (b.hard ? 1.2 : 1) * run.diffBossHp);
+      if (!b.win) return table;
+      return Math.min(Math.max(table, b.win.lo), b.win.hi);
+    };
+    ok('每层 Boss 血量 = clamp(血表, 8s 站桩下限, 55s 站桩上限)',
+      run.log.every(b => b.hp === expectHp(b)),
+      run.log.map(b => b.id + ':' + b.hp + '/' + expectHp(b)).join(' '));
+    ok('第 1 层教学血量不受窗口影响（无窗口记录且等于血表）',
+      !run.log[0].win && run.log[0].hp === run.defHp[run.log[0].id],
+      run.log[0].hp + ' vs ' + run.defHp[run.log[0].id]);
+    ok('其余各层血量严格落在窗口区间内',
+      run.log.every(b => !b.win || (b.hp >= b.win.lo && b.hp <= b.win.hi)));
+    ok('各层血量抬升一律不超过血表 ×1.5', run.log.every(b =>
+      !b.win || b.win.lo <= Math.round(b.win.table * 1.5) + 1),
+      run.log.filter(b => b.win).map(b => b.win.lo + '/' + Math.round(b.win.table * 1.5)).join(' '));
     ok('不同章节地板配色不同', new Set(run.log.map(b => b.theme)).size >= 8,
       [...new Set(run.log.map(b => b.theme))].join(','));
     eq('击败最终 Boss 后通关', run.state, 'win');

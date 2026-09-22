@@ -231,8 +231,9 @@ module.exports = async ({ page, context, consoleErrors }) => {
     for (let i = 0; i < 30; i++) updatePlay(1 / 60);
     out.chargeBleeds = p.laserCharge === 0;
 
-    // boss hp cap: even a pumped build faces at most ~60s of fighting — and
-    // there is no minimum, so a stacked build may melt a boss in seconds
+    // boss hp window: a pumped build is floored at 12s of its own output (no
+    // more two-second melt) and a weak build is capped at 55s (no war of
+    // attrition). Floor 1 keeps its tutorial hp on either side of the window.
     const savedFloorNum = G.floorNum;
     G.floorNum = 6;
     const pumped = makePlayer();
@@ -241,9 +242,25 @@ module.exports = async ({ page, context, consoleErrors }) => {
     const dps = estimatePlayerDPS(pumped);
     const b6 = makeBoss(bossDefForFloor(6), W / 2, H / 2);
     out.maxCapHolds = b6.maxHpRef <= Math.round(dps * BOSS_CAP_FIGHT_SECONDS);
-    out.noMinHolds = b6.maxHpRef <= BOSS_DEFS[5].hp;   // never inflated past design hp
-    out.fastKill = b6.maxHpRef / dps < 10;             // ~8.7s: allowed
-    // floor 1 keeps its tutorial hp even for the same pumped build
+    out.floorHolds = b6.maxHpRef >= Math.min(Math.round(dps * BOSS_MIN_FIGHT_SECONDS),
+      Math.round(BOSS_DEFS[5].hp * BOSS_MAX_INFLATE));
+    out.noFastKill = b6.maxHpRef / dps >= BOSS_MIN_FIGHT_SECONDS - 0.5;
+    out.inflateCapped = b6.maxHpRef <= Math.round(BOSS_DEFS[5].hp * BOSS_MAX_INFLATE);
+    // a build that far outgrows the inflation cap DOES get a speed kill
+    const melt = makePlayer(); melt.damage = 60; melt.fireDelay = 0.1; melt.multishot = 4;
+    G.player = melt;
+    const meltDps = estimatePlayerDPS(melt);
+    out.meltSecs = makeBoss(bossDefForFloor(6), W / 2, H / 2).maxHpRef / meltDps;
+    // a starter build must not be handed the table hp either: the ceiling pulls
+    // floor 6's 3800 down to ~55s of its fire, which is the point of the cap
+    const weak = makePlayer();
+    G.player = weak;
+    const weakDps = estimatePlayerDPS(weak);
+    const bw = makeBoss(bossDefForFloor(6), W / 2, H / 2);
+    out.weakCapped = bw.maxHpRef <= Math.round(weakDps * BOSS_CAP_FIGHT_SECONDS);
+    out.weakNotInflated = bw.maxHpRef <= BOSS_DEFS[5].hp;
+    // floor 1 keeps its tutorial hp even for the pumped build
+    G.player = pumped;
     G.floorNum = 1;
     const b1 = makeBoss(bossDefForFloor(1), W / 2, H / 2);
     out.floor1Untouched = b1.maxHpRef === BOSS_DEFS[0].hp;
@@ -256,16 +273,21 @@ module.exports = async ({ page, context, consoleErrors }) => {
   ok('激光蓄力满才发射（约 ' + 0.5 + 's）', newRules.chargeGate);
   ok('蓄力期间不再发普通眼泪', newRules.tearsSuppressed);
   ok('提前松手蓄力清零', newRules.chargeBleeds);
-  ok('2 层起 Boss 血量不超过 60s 玩家站桩输出', newRules.maxCapHolds);
-  ok('Boss 血量不再按 DPS 抬下限（允许 10s 内速杀）', newRules.noMinHolds && newRules.fastKill);
+  ok('2 层起 Boss 血量不超过 55s 玩家站桩输出', newRules.maxCapHolds);
+  ok('Boss 血量按 8s 站桩输出抬起下限，且不低于血表值', newRules.floorHolds && newRules.noFastKill);
+  ok('血量抬升有上限：不超过血表 ×1.5', newRules.inflateCapped);
+  ok('远超抬升上限的 build 才能真正速杀（4 秒内）',
+    newRules.meltSecs < 4, newRules.meltSecs.toFixed(1) + 's');
+  ok('裸装 build 的 Boss 血量仍被上限压低（不按血表硬撑）', newRules.weakCapped && newRules.weakNotInflated);
   ok('第 1 层 Boss 血量保持教学难度', newRules.floor1Untouched);
 
-  // ------------------------------------ boss hp cap: at most ~60s of player dps
+  // ---------------------- boss hp window: 12s floor, 55s ceiling of player dps
   const bossHpCap = await page.evaluate(() => {
     const p = G.player;
     const savedFloor = G.floorNum;
     const saved = { damage: p.damage, fireDelay: p.fireDelay, multishot: p.multishot, laser: p.laser, crit: p.crit, familiars: p.familiars, poison: p.poison };
-    // a stacked build on floor 2: static hp alone melts Duodeno — and now it should
+    // a stacked build on floor 2: its raw output would melt Duodeno, so the
+    // window lifts the fight to the 12s floor — and no further
     Object.assign(p, { damage: 60, fireDelay: 0.1, multishot: 4, laser: false, crit: 0, familiars: 0, poison: 0 });
     G.floorNum = 2;
     const strong = makeBoss(BOSS_DEFS[1], W / 2, H / 2);
@@ -275,20 +297,72 @@ module.exports = async ({ page, context, consoleErrors }) => {
     const tut = makeBoss(BOSS_DEFS[0], W / 2, H / 2);
     G.floorNum = savedFloor;
     Object.assign(p, saved);
+    const secs = strong.hp / dps;
     return {
-      staysBase: strong.hp === BOSS_DEFS[1].hp,
-      withinCap: strong.hp <= Math.round(dps * BOSS_CAP_FIGHT_SECONDS),
-      fastKill: strong.hp / dps < 10,
+      inflated: strong.hp >= BOSS_DEFS[1].hp,          // 抬升仍然存在
+      inflateCap: strong.hp <= Math.round(BOSS_DEFS[1].hp * 1.5),   // 但抬升有上限
+      capped: secs <= BOSS_CAP_FIGHT_SECONDS + 0.5,
+      meltSecs: secs,                                   // 超强 build 的真实秒数
       barTracks: strong.maxHpRef === strong.hp,
       tutorialUntouched: tut.hp === BOSS_DEFS[0].hp,
-      hp: strong.hp, dps, base: BOSS_DEFS[1].hp,
+      hp: strong.hp, dps, secs, base: BOSS_DEFS[1].hp,
     };
   });
-  ok('叠满输出时 Boss 血量保持设计值（不再被抬高）', bossHpCap.staysBase, bossHpCap.hp + ' vs base ' + bossHpCap.base);
-  ok('Boss 血量不超过 60s 玩家站桩输出上限', bossHpCap.withinCap, bossHpCap.hp + ' vs 60s×' + bossHpCap.dps);
-  ok('数值堆高时允许 10s 内速杀 Boss', bossHpCap.fastKill, (bossHpCap.hp / bossHpCap.dps).toFixed(1) + 's');
+  ok('叠满输出时 Boss 血量仍被抬升，但不超过血表 ×1.5',
+    bossHpCap.inflated && bossHpCap.inflateCap,
+    bossHpCap.hp + ' vs base ' + bossHpCap.base);
+  ok('远超抬升上限的 build 拿到真正的速杀（1 秒内结束）',
+    bossHpCap.meltSecs < 1, bossHpCap.meltSecs.toFixed(2) + 's');
+  ok('Boss 血量不超过 55s 玩家站桩输出上限', bossHpCap.capped,
+    bossHpCap.hp + ' vs 55s×' + bossHpCap.dps);
   ok('血条基准跟随最终血量', bossHpCap.barTracks);
-  ok('第 1 层 Boss 不受血量上限影响', bossHpCap.tutorialUntouched);
+  ok('第 1 层 Boss 不受血量窗口影响', bossHpCap.tutorialUntouched);
+
+  // ------------------------------------- 弹幕完整性：字段齐备 + 真的能打到人
+  // 踩过的坑：bossShotFrom 的字段被写坏后 r 变成 undefined，命中判定
+  // dist(...) < s.r + p.r - 2 恒为 NaN（Boss 弹幕永远打不到玩家），画布也因为
+  // 半径不是有限数直接跳过绘制——子弹隐身。这条断言专门重新锁死这个坑。
+  const shotFmt = await page.evaluate(() => {
+    const saved = { eshots: G.eshots, room: G.room, num: G.floorNum, dev: G.dev, inv: G.player.invuln };
+    const out = {};
+    const body = { x: W / 2, y: H / 2 };
+    const fmt = (s) => ({
+      r: s.r, dmg: s.dmg, bounces: s.bounces, dead: s.dead, du: s.du,
+      finite: [s.x, s.y, s.vx, s.vy].every(Number.isFinite),
+      rounded: Number.isFinite(s.r) && s.r > 0,
+      damageable: typeof s.dmg === 'number' && s.dmg >= 1,
+    });
+    G.eshots = []; bossShot(G, body, 0, 200, 7, 1, 2);   // sp=200 r=7 dmg=1 bounces=2
+    out.bossShot = fmt(G.eshots[0]);
+    G.eshots = []; bossShotFrom(G, body.x, body.y, Math.PI / 2, 200, 6, 1, 2);
+    out.bossShotFrom = fmt(G.eshots[0]);
+    G.eshots = []; addEnemyTear(G, body.x, body.y, 0, 200, 5, 3);
+    out.mobTear = fmt(G.eshots[0]);
+
+    // the real test: a boss bullet aimed at the player must actually hurt
+    G.dev = false;
+    const p = G.player;
+    const hp0 = p.hp + p.soulHp;
+    p.invuln = 0; p.dmgReduce = 0; p.shieldUp = false; p.charId = 'dodo';
+    G.eshots = [];
+    bossShotFrom(G, p.x - 70, p.y, 0, 220, 8, 1, 0);
+    for (let i = 0; i < 40 && (p.hp + p.soulHp) === hp0; i++) updateEnemyShots(G, 1 / 60);
+    out.hitsPlayer = (p.hp + p.soulHp) < hp0;
+
+    G.eshots = saved.eshots; G.room = saved.room; G.floorNum = saved.num;
+    G.dev = saved.dev; p.invuln = saved.inv; startRun();
+    return out;
+  });
+  ok('bossShot 生成的弹幕字段齐备（半径 / 伤害 / 弹墙 / 存活）',
+    shotFmt.bossShot.rounded && shotFmt.bossShot.damageable &&
+    shotFmt.bossShot.bounces === 2 && shotFmt.bossShot.dead === false && shotFmt.bossShot.finite,
+    JSON.stringify(shotFmt.bossShot));
+  ok('bossShotFrom 生成的弹幕字段齐备', shotFmt.bossShotFrom.rounded &&
+    shotFmt.bossShotFrom.damageable && shotFmt.bossShotFrom.finite,
+    JSON.stringify(shotFmt.bossShotFrom));
+  ok('小怪弹幕字段齐备', shotFmt.mobTear.rounded && shotFmt.mobTear.damageable && shotFmt.mobTear.finite,
+    JSON.stringify(shotFmt.mobTear));
+  ok('Boss 弹幕真的能打中站在弹道上的玩家', shotFmt.hitsPlayer);
 
   // --------------------------------------------- Brimstone hold-to-charge
   const chargeTest = await page.evaluate(async () => {

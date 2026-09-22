@@ -27,6 +27,27 @@ function menuCodexHit(cx, cy) {
   return !G.unlockPanel && Math.abs(cx - W / 2) < 220 && cy > 524 && cy < 552;
 }
 
+// ---------------- difficulty chip ----------------
+// Sits top-right on the title screen: ↑↓ on desktop, a tap on touch. The
+// choice persists in the meta save (js/meta.js) and every preset only scales
+// multipliers, so a seed still builds the same dungeon at any difficulty.
+const MENU_DIFF_RECT = { x: W - 250, y: 20, w: 226, h: 40 };
+function menuDiffHit(cx, cy) {
+  const r = MENU_DIFF_RECT;
+  return !G.unlockPanel && cx > r.x && cx < r.x + r.w && cy > r.y && cy < r.y + r.h;
+}
+function cycleDifficulty(step) {
+  // menu-only: switching mid-run would leave one floor's numbers inconsistent
+  // with the next (bigger boss window, different spawn counts, ...)
+  if (G.state !== 'menu') return;
+  const i = DIFF_ORDER.indexOf(DIFF_KEY);
+  const nx = DIFF_ORDER[(i + step + DIFF_ORDER.length) % DIFF_ORDER.length];
+  setDifficulty(nx);
+  META.diff = nx;
+  metaSave();
+  SFX.coin();
+}
+
 // front-most character under the pointer (front slots win overlaps)
 function menuCharHit(cx, cy) {
   let best = -1, bestDepth = -1;
@@ -95,15 +116,20 @@ function unlockArtFn(u) {
 }
 
 function renderUnlockPanel() {
+  // 11 entries over 6 rows already fills a 576px sheet, so this one screen draws
+  // at 1:1: at UIK > 1 the row text would push into its neighbours. Legibility on
+  // a phone is traded for keeping the whole list on one page.
+  const keepK = UIK;
+  UIK = 1;
   ctx.save();
   ctx.fillStyle = 'rgba(6,4,3,0.9)';
   ctx.fillRect(0, 0, W, H);
   ctx.textAlign = 'center';
-  ctx.font = 'bold 32px Georgia';
+  ctx.font = 'bold 32px ' + UI_SERIF;
   ctx.fillStyle = '#e8dcc0';
   ctx.fillText('解锁图鉴', W / 2, 54);
   const done = UNLOCK_DEFS.filter(u => metaHas(u.id)).length;
-  ctx.font = '14px Trebuchet MS';
+  ctx.font = '14px ' + UI_SANS;
   ctx.fillStyle = 'rgba(200,186,158,0.7)';
   ctx.fillText('已解锁 ' + done + ' / ' + UNLOCK_DEFS.length
     + '　·　达成条件的瞬间立即获得道具，之后的冒险需在地牢中寻获', W / 2, 82);
@@ -125,10 +151,10 @@ function renderUnlockPanel() {
     const tx = x + 24 + fs;
     const y1 = y + Math.round(rowH * 0.27), y2 = y + Math.round(rowH * 0.51), y3 = y + Math.round(rowH * 0.73);
     ctx.textAlign = 'left';
-    ctx.font = 'bold 16px Georgia';
+    ctx.font = 'bold 16px ' + UI_SERIF;
     ctx.fillStyle = has ? '#f4d03f' : 'rgba(150,138,118,0.85)';
     ctx.fillText(u.label + (u.kind === 'char' ? '（角色）' : u.kind === 'boss' ? '（隐藏Boss）' : ''), tx, y1);
-    ctx.font = '12px Trebuchet MS';
+    ctx.font = '12px ' + UI_SANS;
     ctx.fillStyle = has ? 'rgba(216,204,176,0.9)' : 'rgba(140,128,110,0.7)';
     const info = u.kind === 'item' ? (ITEM_BY_ID[u.id] || {}).desc
       : u.kind === 'char' ? (CHAR_DEFS.find(ch => ch.unlock === u.id) || {}).desc
@@ -139,18 +165,19 @@ function renderUnlockPanel() {
     const how = u.kind === 'boss' && !has && META.totals.wins < 1 ? '???' : u.how;
     ctx.fillText((has ? '已解锁　·　' : '解锁条件　') + how, tx, y3);
     ctx.textAlign = 'right';
-    ctx.font = 'bold 12px Trebuchet MS';
+    ctx.font = 'bold 12px ' + UI_SANS;
     ctx.fillStyle = has ? '#c9a437' : 'rgba(110,100,86,0.8)';
     ctx.fillText(has ? '已解锁' : '未解锁', x + colW - 12, y1);
     ctx.textAlign = 'left';
   });
 
   ctx.textAlign = 'center';
-  ctx.font = 'bold 17px Georgia';
+  ctx.font = 'bold 17px ' + UI_SERIF;
   ctx.fillStyle = Math.sin(performance.now() / 190) > -0.2 ? '#efe6d2' : 'rgba(239,230,210,0.35)';
   ctx.fillText(IS_TOUCH ? '点击屏幕关闭　·　也可再点左上角的图鉴按钮'
     : '按 I 或 Esc 关闭　·　点击屏幕也可关闭', W / 2, H - 24);
   ctx.restore();
+  UIK = keepK;
 }
 
 // ---------------- mid-run unlock popup ----------------
@@ -181,13 +208,13 @@ function renderUnlockPopups() {
   ctx.restore();
   const tx = cx0 + 96;
   ctx.textAlign = 'left';
-  ctx.font = 'bold 15px Trebuchet MS';
+  ctx.font = 'bold 15px ' + UI_SANS;
   ctx.fillStyle = '#c9a437';
   ctx.fillText(u.kind === 'char' ? '新角色解锁！' : u.kind === 'boss' ? '终极猎手！' : '新道具解锁！', tx, cy0 + 26);
-  ctx.font = 'bold 19px Georgia';
+  ctx.font = 'bold 19px ' + UI_SERIF;
   ctx.fillStyle = '#f3ecd8';
   ctx.fillText(u.label, tx, cy0 + 50);
-  ctx.font = '13px Trebuchet MS';
+  ctx.font = '13px ' + UI_SANS;
   ctx.fillStyle = 'rgba(216,204,176,0.85)';
   const tail = u.kind === 'char' ? '选人界面已可选用'
     : u.kind === 'boss' ? '你已站上地牢之巅'
