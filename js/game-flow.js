@@ -197,8 +197,11 @@ function onRoomCleared(room) {
   const roll = Math.random();
   const cx = clamp(G.player.x, FLOOR_X + 60, FLOOR_X + FLOOR_W - 60);
   const cy = clamp(G.player.y, FLOOR_Y + 60, FLOOR_Y + FLOOR_H - 60);
-  // healing stays rare on every floor: room-clear half-hearts are 6%, flat
-  const heartChance = 0.06;
+  // healing stays rare on every floor: room-clear half-hearts are 6%, flat.
+  // 轻松档前两层的容错是另一条曲线：玩家那时还没有任何回复道具，把这两层的
+  // 掉心概率乘 3（6% → 18%），第 3 层起回到 6%。标准 / 硬核未定义该键 → ×1，
+  // 全程仍是 6%。
+  const heartChance = 0.06 * (G.floorNum <= 2 ? diffMul('openingHeal') : 1);
   if (roll < 0.12) room.pickups.push(makePickup('chest', W / 2, H / 2));
   else if (roll < 0.3) room.pickups.push(makePickup('coin', cx, cy - 50));
   else if (roll < 0.3 + heartChance) room.pickups.push(makePickup('halfheart', cx, cy - 50));

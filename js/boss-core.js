@@ -169,8 +169,7 @@ function makeBoss(def, x, y) {
   // still reads as "meaner than the safe route" for the same player
   if (typeof G !== 'undefined' && G.floor && G.floor.hard) hp = Math.round(hp * 1.2);
   if (G.floorNum > 1) {
-    // the preset's bossHp knob. Floor 1 keeps its tutorial 300 on every preset,
-    // so a first run always meets the same opening fight
+    // the preset's bossHp knob. Floors 2+ scale with the preset
     hp = Math.round(hp * diffMul('bossHp'));
     const dps = estimatePlayerDPS(G.player);
     const lo = Math.max(1, Math.min(
@@ -179,6 +178,13 @@ function makeBoss(def, x, y) {
     const hi = Math.max(lo, Math.round(dps * BOSS_CAP_FIGHT_SECONDS * diffMul('bossCap')));
     win = { dps, lo, hi, table: hp };
     hp = clamp(hp, lo, hi);
+  } else {
+    // 第 1 层是教学战：三档都不进血量窗口（弱 build 不会被抬、强 build 不会被压），
+    // 但轻松档另有一个开局血量旋钮。原来的规则是三档都钉死 300，理由是「第一个
+    // Boss 对所有人一样」；实际后果是刚下地牢、手上零道具的裸装 dodo（8.3 DPS）
+    // 要在 Gluttono 面前站桩硬射 36 秒，这是全程手感最差的一场仗。现在标准 /
+    // 硬核仍然是 300（openingBoss 未定义 → ×1），轻松档 ×0.65 = 195 血。
+    hp = Math.round(hp * diffMul('openingBoss'));
   }
   return {
     type: 'boss', isBoss: true, def, name: def.name,

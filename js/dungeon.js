@@ -231,9 +231,16 @@ function generateFloor(depth, hard) {
     }
   }
 
-  // mini-boss room (50%): converts a normal room; looks identical on the map
-  // until entered — the surprise is the point
-  if (chance(0.5)) {
+  // mini-boss room (50%, floor 3+): converts a normal room; looks identical on
+  // the map until entered — the surprise is the point.
+  // Tier gate: 第 1 层不做小 Boss（用户要求，第一个 Boss 前不该再插一场硬仗），
+  // 第 2 层也不做——小 Boss 取的是「两层之前的 Boss」，第 2 层拿到的是 Gluttono
+  // 的半血版本，而此时玩家手上通常只有一两件道具，这一战比第 2 层的正牌 Boss
+  // 更突兀。第 3 层起照旧 50%。
+  // 随机流刻意不省：chance(0.5) 照常抽一次（结果丢弃），这样同一颗种子下除了
+  // 小 Boss 这个房型本身，其余房间（含秘密房的选点）位置一个都没变。
+  const miniRoll = chance(0.5);
+  if (depth >= 3 && miniRoll) {
     const cands = rooms.filter(r => r.kind === 'normal' && (distMap.get(r) || 0) >= 2);
     if (cands.length) pick(cands).kind = 'miniboss';
   }

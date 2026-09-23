@@ -32,9 +32,17 @@ function chance(p) { return rng() < p; }
 // dungeon, room kinds, curses and item pool rolls on all three presets —
 // only the numbers differ. Consumers ask for one knob by name.
 const DIFFICULTY_PRESETS = {
-  easy:   { label: '轻松', desc: '敌人更脆更少更迟钝',
-            enemyHp: 0.85, enemyCount: 0.80, enemySpeed: 0.92, enemyDmg: 0.85,
-            bossHp: 0.85, bossCap: 0.85, bossMin: 0.85, bossGap: 1.15, bulletSpeed: 0.92 },
+  // 轻松档是「能安心推前期」那一档：敌人血量 / 数量 / 伤害一起降，出招间隔放宽到
+  // 1.5 倍，另外四个键只在轻松档出现（标准 / 硬核不定义），所以 diffMul 落到它们
+  // 时返回 1，其它两档的行为一个数都没变：
+  //   invulnMul   受击无敌帧倍率（挨一下之后有更久的喘息）
+  //   openingBoss 第 1 层教学 Boss 的血量倍率
+  //   openingHeal 前两层清房掉半心的概率倍率
+  //   openingEase 前两层敌人血量 / 速度 / 伤害 / 弹速的额外宽容系数
+  easy:   { label: '轻松', desc: '敌人更脆更少更迟钝 · 前期更宽容',
+           enemyHp: 0.60, enemyCount: 0.70, enemySpeed: 0.85, enemyDmg: 0.60,
+           bossHp: 0.85, bossCap: 0.80, bossMin: 0.80, bossGap: 1.50, bulletSpeed: 0.82,
+           invulnMul: 1.2, openingBoss: 0.65, openingEase: 0.7, openingHeal: 3 },
   normal: { label: '标准', desc: '原始手感',
             enemyHp: 1,    enemyCount: 1,    enemySpeed: 1,    enemyDmg: 1,
             bossHp: 1,    bossCap: 1,    bossMin: 1,    bossGap: 1,    bulletSpeed: 1 },

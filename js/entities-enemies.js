@@ -2,20 +2,26 @@
 // --- enemies ---
 // Exponential difficulty curve: hp compounds per floor instead of the old
 // linear ramp, and touch damage / shot damage step up with depth.
+// 「开局宽容」只在轻松档存在（diffMul('openingEase')，标准 / 硬核未定义 → 1），
+// 且只作用于第 1-2 层：这两层是玩家还没拿到任何道具的阶段，难度曲线最陡的一段
+// 就在这里。只读 preset 的乘法，不消耗随机流。
+function openEase(depth) { return depth <= 2 ? diffMul('openingEase') : 1; }
 function enemyHpScale(depth) {
   // a second exponent kicks in after floor 6 so a scaled build keeps meeting
   // resistance instead of one-shotting every room in the late chapters
-  return Math.pow(1.22, depth - 1) * Math.pow(1.10, Math.max(0, depth - 6));
+  return Math.pow(1.22, depth - 1) * Math.pow(1.10, Math.max(0, depth - 6)) * openEase(depth);
 }
 // deep floors also move faster (+2% per floor): the late game should threaten
 // through aggression, not only through hp pools the player chews through
-function enemySpeedScale(depth) { return 1 + (depth - 1) * 0.02; }
-// damage steps stay whole half-hearts, so the preset multiplies then rounds
+function enemySpeedScale(depth) { return (1 + (depth - 1) * 0.02) * openEase(depth); }
+// damage steps stay whole half-hearts, so the preset multiplies then rounds.
+// The Math.max(1, …) floor is load-bearing: 轻松档开局的两层叠完 0.6 × 0.7 = 0.42
+// 会把接触伤害四舍五入成 0——小怪从此碰不到人。再宽容的一档也得留下半颗心。
 function enemyTouchDamage(depth) {
-  return Math.round((1 + Math.floor((depth - 1) / 4)) * diffMul('enemyDmg'));   // 1 → 2 → 3
+  return Math.max(1, Math.round((1 + Math.floor((depth - 1) / 4)) * diffMul('enemyDmg') * openEase(depth)));   // 1 → 2 → 3
 }
 function enemyShotDamage(depth) {
-  return Math.round((depth >= 11 ? 4 : (depth >= 5 ? 3 : 1)) * diffMul('enemyDmg'));
+  return Math.max(1, Math.round((depth >= 11 ? 4 : (depth >= 5 ? 3 : 1)) * diffMul('enemyDmg') * openEase(depth)));
 }
 
 function makeEnemy(type, x, y, depth = 1) {
@@ -503,7 +509,8 @@ function hurtPlayer(G, dmg, fromX, fromY) {
     addRage(p, 0.4);
     rageMarkCombat(p);
   }
-  p.invuln = 1.1 + (p.invulnBonus || 0);
+  // 受击无敌帧：轻松档 ×1.2（1.1 → 1.32s），标准 / 硬核未定义该键 → ×1，一个数没变
+  p.invuln = 1.1 * diffMul('invulnMul') + (p.invulnBonus || 0);
   p.hurtFlash = 0.35;
   G.shake = 10;
   // screen-level readout (renderHUD's bloom) + a haptic tick where supported

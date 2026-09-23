@@ -292,7 +292,8 @@ module.exports = async ({ page, context, consoleErrors }) => {
   // ---------------------------------------------------- new room kinds
   section('新房型');
   const roomsInfo = await page.evaluate(() => {
-    const out = { secret: 0, curse: 0, challenge: 0, miniboss: 0, hiddenOk: true, secretLinked: true };
+    const out = { secret: 0, curse: 0, challenge: 0, miniboss: 0, hiddenOk: true, secretLinked: true,
+      miniByFloor: { 1: 0, 2: 0, 3: 0, 6: 0 } };
     for (let i = 0; i < 30; i++) {
       const f = generateFloor(6);
       const by = k => f.rooms.filter(r => r.kind === k).length;
@@ -313,12 +314,25 @@ module.exports = async ({ page, context, consoleErrors }) => {
         }
       }
     }
+    // 小 Boss 房的层级门：第 1-2 层必须一场都没有，第 3 层起才按 50% 抽
+    for (const depth of [1, 2, 3, 6]) {
+      for (let i = 0; i < 40; i++) {
+        const f = generateFloor(depth);
+        if (f.rooms.some(r => r.kind === 'miniboss')) out.miniByFloor[depth]++;
+      }
+    }
     return out;
   });
   eq('每层都有秘密房', roomsInfo.secret, 30);
   ok('诅咒房按概率出现', roomsInfo.curse >= 8 && roomsInfo.curse <= 28, roomsInfo.curse);
   ok('挑战房按概率出现', roomsInfo.challenge >= 7 && roomsInfo.challenge <= 27, roomsInfo.challenge);
   ok('小Boss房按概率出现', roomsInfo.miniboss >= 6 && roomsInfo.miniboss <= 26, roomsInfo.miniboss);
+  eq('第 1 层不出小 Boss（40 次生成，一次都没有）', roomsInfo.miniByFloor[1], 0);
+  eq('第 2 层也不出小 Boss', roomsInfo.miniByFloor[2], 0);
+  ok('第 3 层起小 Boss 房恢复 50% 概率',
+    roomsInfo.miniByFloor[3] >= 10 && roomsInfo.miniByFloor[3] <= 30 &&
+    roomsInfo.miniByFloor[6] >= 10 && roomsInfo.miniByFloor[6] <= 30,
+    roomsInfo.miniByFloor[3] + ' / ' + roomsInfo.miniByFloor[6]);
   ok('秘密房与邻居互连', roomsInfo.secretLinked);
   ok('秘密房的门双向隐藏', roomsInfo.hiddenOk);
 
